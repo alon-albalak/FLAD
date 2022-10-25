@@ -4,7 +4,6 @@ import logging
 import numpy as np
 from datasets import load_dataset, load_from_disk, Dataset
 from promptsource.templates import DatasetTemplates
-from typing import Dict, List
 import pandas as pd
 
 # set logging level to INFO
@@ -88,39 +87,45 @@ EvalMixture = [
     "wsc"
 ]
 
-def get_datasets(dataset_or_mixture_name, split, template_idx=-1, target_dataset_args=None, debug=False):
+# TEST_SET_SPLITS = {
+#     "rte": "validation"
+#     "h-swag",
+#     "copa",
+#     "wic": "validation"
+#     "winogrande",
+#     "cb",
+#     "storycloze",
+#     "anli-r1",
+#     "anli-r2",
+#     "anli-r3",
+#     "wsc"
+# }
+
+def get_datasets(
+        dataset_or_mixture_name,
+        split,
+        max_samples=None,
+        template_idx=-1,
+        target_dataset_args=None,
+    ):
+    assert(split in ['train','validation','test'])
     if dataset_or_mixture_name == "T0Mixture":
-        if debug:
-            return get_T0MixtureDatasets_debug(split)
-        return get_T0MixtureDatasets(split)
+        return get_T0MixtureDatasets(split, max_samples)
     elif dataset_or_mixture_name in EvalMixture:
         return get_eval_dataset(dataset_or_mixture_name, split, target_dataset_args)
 
     raise ValueError(f"Unknown dataset or mixture: {dataset_or_mixture_name}")
     
 
-def get_T0MixtureDatasets(split):
+def get_T0MixtureDatasets(split, max_samples=None):
     """
     T0MixtureDatasets creates a separate dataset for each dataset in the mixture
     """
     datasets = []
     for name, subset in TOMixture:
         dataset = load_dataset(name, subset, split=split)
-        templates = [template for id, template in DatasetTemplates(name, subset).templates.items()]
-        dataset.templates = templates
-        datasets.append(dataset)
-
-        logger.info(f"Loaded dataset {name}/{subset} with {len(templates)} templates")
-        assert(len(templates) > 0), "No templates"
-    return datasets
-
-def get_T0MixtureDatasets_debug(split):
-    """
-    T0MixtureDatasets creates a separate dataset for each dataset in the mixture
-    """
-    datasets = []
-    for name, subset in TOMixture[:5]:
-        dataset = load_dataset(name, subset, split=split)
+        if max_samples:
+            dataset = Dataset.from_dict(dataset[:max_samples])
         templates = [template for id, template in DatasetTemplates(name, subset).templates.items()]
         dataset.templates = templates
         datasets.append(dataset)
@@ -144,7 +149,11 @@ def get_eval_dataset(name, split, target_dataset_args):
         "wsc": WSCFixedReader,
     }
     reader = READERS[name](target_dataset_args)
-    dataset = reader.read_orig_dataset(split)
+    if target_dataset_args.num_shot is None:
+        dataset = reader.read_orig_dataset(split)
+    else:
+        dataset = reader.read_few_shot_dataset(name, target_dataset_args.num_shot,
+                                    target_dataset_args.few_shot_random_seed, split)
     if isinstance(dataset, list):
         dataset = Dataset.from_list(dataset)
     templates = reader.templates
@@ -230,12 +239,12 @@ class BaseDatasetReader(object):
             orig_data = load_dataset(*self.dataset_stash, split=split)
         return orig_data
 
-    def read_few_shot_dataset(self, num_shot, few_shot_random_seed):
-        file_dir = os.path.join("data", "few_shot", self.config.dataset, f"{num_shot}_shot")
+    def read_few_shot_dataset(self, name, num_shot, few_shot_random_seed, split):
+        file_dir = os.path.join("data", "few_shot", name, f"{num_shot}_shot")
         if not os.path.exists(file_dir):
             os.makedirs(file_dir)
 
-        file_path = os.path.join(file_dir, f"{few_shot_random_seed}_seed.jsonl")
+        file_path = os.path.join(file_dir, f"{few_shot_random_seed}_seed_{split}.jsonl")
 
         if os.path.exists(file_path):
             with open(file_path, "r") as fin:
@@ -246,21 +255,36 @@ class BaseDatasetReader(object):
             return data
         else:
             orig_data = self.read_orig_dataset("train")
-            selected_data = self._sample_few_shot_data(orig_data)
+            train_data, validation_data = self._generate_few_shot_data(orig_data, num_shot, few_shot_random_seed)
 
-            with open(file_path, "w+") as fout:
-                for example in selected_data:
+            with open(os.path.join(file_dir, f"{few_shot_random_seed}_seed_train.jsonl"), "w+") as fout:
+                for example in train_data:
                     fout.write(json.dumps(example) + "\n")
-            return selected_data
+            with open(os.path.join(file_dir, f"{few_shot_random_seed}_seed_validation.jsonl"), "w+") as fout:
+                for example in validation_data:
+                    fout.write(json.dumps(example) + "\n")
 
-    def _sample_few_shot_data(self, orig_data):
+            if split == "train":
+                return train_data
+            else:
+                return validation_data
+
+    def _sample_few_shot_data(self, orig_data, num_shot, few_shot_random_seed):
         saved_random_state = np.random.get_state()
-        np.random.seed(self.config.few_shot_random_seed)
+        np.random.seed(few_shot_random_seed)
         orig_data = [x for x in orig_data]
         np.random.shuffle(orig_data)
-        selected_data = orig_data[: self.config.num_shot]
+        selected_data = orig_data[: num_shot]
         np.random.set_state(saved_random_state)
         return selected_data
+
+    def _generate_few_shot_data(self, orig_data, num_shot, few_shot_random_seed):
+        sampled_data = self._sample_few_shot_data(orig_data, num_shot, few_shot_random_seed)
+        assert(num_shot/2 == num_shot//2),"Number of shots is not equally divisible by 2"
+        train_data = sampled_data[:num_shot//2]
+        validation_data = sampled_data[num_shot//2:]
+        return train_data, validation_data
+
 
     def get_compute_metric(self):
         def compute_metric(accumulated):

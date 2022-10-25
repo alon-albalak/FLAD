@@ -180,33 +180,6 @@ class DataTrainingArguments:
             )
         },
     )
-    max_train_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of training examples to this "
-                "value if set."
-            )
-        },
-    )
-    max_eval_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
-                "value if set."
-            )
-        },
-    )
-    max_predict_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of prediction examples to this "
-                "value if set."
-            )
-        },
-    )
     num_beams: Optional[int] = field(
         default=None,
         metadata={
@@ -238,6 +211,12 @@ class DataTrainingArguments:
             "help": "Name of the auxiliary datasets to use if training"
         },
     )
+    max_samples_per_auxiliary_dataset: Optional[int] = field(
+        default=10000,
+        metadata={
+            "help": "The maximum number of samples to use per auxiliary dataset"
+        }
+    )
     target_dataset: Optional[str] = field(
         default=None,
         metadata={
@@ -256,9 +235,6 @@ class DataTrainingArguments:
             "help": "If using a single template, specify here. -1 is default, uses all templates."
         },
     )
-    debugging: Optional[bool] = field(
-        default=False
-    )
     
     def __post_init__(self):
         if self.auxiliary_dataset is None and self.target_dataset is None:
@@ -273,13 +249,13 @@ class TargetDatasetArguments:
     Arguments that are specific to our target datasets used for training and eval.
     """
     num_shot: Optional[int] = field(
-        default=16,
+        default=None,
         metadata={
             "help": "Specifies the number of samples used for few-shot tasks."
         }
     )
     few_shot_random_seed: Optional[int] = field(
-        default=100,
+        default=None,
         metadata={
             "help":"Random seed to be used for determining few-shot samples"
         }
@@ -299,6 +275,9 @@ class TargetDatasetArguments:
     cleaned_answer_choices_b77: Optional[bool] = field(
         default=False
     )
+    def __post_init__(self):
+        assert((self.num_shot and self.few_shot_random_seed) or \
+                (self.num_shot is None and self.few_shot_random_seed is None)), ""
 
 # def default_logdir() -> str:
 #     """
@@ -2013,6 +1992,12 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
         default=1,
         metadata={
             "help": "Normalize answer choice scores by length."
+        }
+    )
+    patience: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Stop training when the metric specified for `metric_for_best_model` worsend for `patience` number of evaluation calls."
         }
     )
 

@@ -23,7 +23,6 @@ import os
 import sys
 
 from datasets.utils.logging import set_verbosity
-import datasets
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
 
@@ -34,8 +33,8 @@ from transformers import (
     AutoConfig,
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
-    DataCollatorForSeq2Seq,
     HfArgumentParser,
+    EarlyStoppingCallback,
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint
@@ -108,7 +107,9 @@ def main():
         + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
     )
     # TODO - ALON: Log arguments of interest, not just training args
-    logger.info(f"Training/evaluation parameters {training_args}")
+    logger.info(training_args)
+    logger.info(data_args)
+    logger.info(target_dataset_args)
 
     # Detecting last checkpoint.
     last_checkpoint = None
@@ -134,9 +135,10 @@ def main():
 
     # Get train/validation/test datasets
     if training_args.do_train:
-        train_dataset = get_datasets(data_args.auxiliary_dataset,split="train", debug=data_args.debugging)
+        train_dataset = get_datasets(data_args.auxiliary_dataset,split="train",
+                    max_samples=data_args.max_samples_per_auxiliary_dataset)
         if training_args.train_strategy == "auxiliary_only":
-            validation_dataset = get_datasets(data_args.auxiliary_dataset, split="validation", debug=data_args.debugging)
+            validation_dataset = get_datasets(data_args.auxiliary_dataset, split="validation")
         else:
             train_dataset.append(get_datasets(data_args.target_dataset, split="train", target_dataset_args=target_dataset_args))
             validation_dataset = get_datasets(data_args.target_dataset, split="validation", target_dataset_args=target_dataset_args)
@@ -216,15 +218,6 @@ def main():
         result = metric.compute(predictions=preds, references=labels)
         return result
 
-
-    if data_args.debugging:
-        train_dataset = ConcatDataset([Subset(dataset,range(50)) for dataset in train_dataset.datasets])
-        if training_args.train_strategy == "auxiliary_only":
-            validation_dataset = ConcatDataset([Subset(dataset, range(50)) for dataset in validation_dataset.datasets])
-        else:
-            validation_dataset = Subset(validation_dataset, range(50))
-        test_dataset = Subset(test_dataset, range(50))
-
     # Initialize our Trainer
     trainer = MTCLSeq2SeqTrainer(
         model=model,
@@ -233,6 +226,7 @@ def main():
         eval_dataset=validation_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+        callbacks= [EarlyStoppingCallback(early_stopping_patience=training_args.patience)] if training_args.patience else None
     )
 
     # Training
