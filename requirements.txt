@@ -2,6 +2,7 @@ torch==1.12.1
 datasets==2.6.1
 transformers==4.23.1
 deepspeed==0.7.3
+accelerate==0.13.2
 sentencepiece==0.1.97
 promptsource==0.2.3
 nltk==3.7
