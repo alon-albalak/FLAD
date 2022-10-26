@@ -80,7 +80,7 @@ trainer_log_levels = dict(**log_levels, passive=-1)
 class TrainStrategy(ExplicitEnum):
     AUX_ONLY = "auxiliary_only"
     AUX_AND_TARGET = "auxiliary_and_target"
-    GRAD_DIRECTED = "gradient_directed"
+    TARGET_ONLY = "target_only"
 
 @dataclass
 class ModelArguments:
@@ -1985,8 +1985,15 @@ class TargetDatasetArguments:
 class MTCLTrainingArguments(Seq2SeqTrainingArguments):
     train_strategy: Union[TrainStrategy, str] = field(
         default="auxiliary_and_target",
-        metadata={"help": f"The training strategy to use. Options are auxiliary_only, auxiliary_and_target, or gradient_directed"
+        metadata={"help": "The training strategy to use. Options are auxiliary_only, auxiliary_and_target, target_only."
         },
+    )
+    gradient_directed: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help":
+            "Option to use gradients to determine auxiliary dataset sampling when using auxiliary_and_target train_strategy."
+            }
     )
     length_norm: Optional[int] = field(
         default=1,
