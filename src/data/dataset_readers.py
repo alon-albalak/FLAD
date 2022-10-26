@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import numpy as np
-from data_utils import get_dataset_name
+from .data_utils import get_dataset_name
 from datasets import load_dataset, load_from_disk, Dataset
 from promptsource.templates import DatasetTemplates
 import pandas as pd
