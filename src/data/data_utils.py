@@ -1,10 +1,16 @@
 from dataclasses import dataclass
-from json import decoder
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, Dict, List
 import numpy as np
 import torch
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils import PaddingStrategy
+
+def get_dataset_name(name: str, subset: str):
+    if subset is not None:
+        canonized_name = f"{name}/{subset}"
+    else:
+        canonized_name = name
+    return canonized_name
 
 class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
     def __init__(self, dataset, tokenizer, include_answer_choices=True, add_special_tokens=True):
@@ -13,6 +19,7 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
         self.tokenizer = tokenizer
         self.include_answer_choices = include_answer_choices
         self.add_special_tokens = add_special_tokens
+        self.index_map = np.arange(len(dataset))
 
     def __len__(self):
         return len(self.dataset)
@@ -37,7 +44,7 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
             target_str = "<NO LABEL>"
         input_ids = self.tokenizer(input_str, return_tensors="pt", truncation=True).input_ids.squeeze(0)
         target_ids = self.tokenizer(target_str, return_tensors="pt", truncation=True).input_ids.squeeze(0)
-        return input_ids, target_ids
+        return self.dataset.name, input_ids, target_ids
 
     def get_item_w_answer_choices(self, sample, template):
         input_str, target_str = template.apply(sample)
@@ -74,7 +81,93 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
         else:
             label = None
         idx = torch.LongTensor([sample["idx"]])
-        return input_ids, target_ids, answer_choices_ids, label, idx
+        return self.dataset.name, input_ids, target_ids, answer_choices_ids, label, idx
+
+    def shuffle_indices(self):
+        self.rng.shuffle(self.index_map)
+
+    def initialize_iterable(self, seed):
+        self.rng = np.random.default_rng(seed)
+        self._restart()
+
+    def __iter__(self):
+        self.shuffle_indices()
+        self.cur_idx = -1
+
+    def _restart(self):
+        self.__iter__()
+
+    def __next__(self):
+        self.cur_idx += 1
+        if self.cur_idx == self.__len__():
+            self._restart()
+            self.cur_idx += 1
+        # print(f"Cur idx: {self.cur_idx} - Mapped idx: {self.index_map[self.cur_idx]}")
+        return self.__getitem__(int(self.index_map[self.cur_idx]))
+
+
+
+class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
+
+    def __init__(
+        self,
+        datasets: Dict[str, DatasetWithTemplate],
+        weights: Optional[List[float]] = None,
+        seed = None
+    ) -> None:
+
+        for dataset in datasets.values():
+            dataset.initialize_iterable(seed)
+        self.datasets = datasets
+        self._weights = weights
+        self.generator = self._initialize_generator(seed)
+        self.ordered_dataset_names = list(datasets.keys())
+
+        if not isinstance(self.weights, (torch.Tensor, list)):
+            raise TypeError("weights should be a list or tensor of floats, "
+                            f"but got weights={self.weights}")
+
+        self.update_distribution()
+
+    def _initialize_generator(self, seed):
+        generator = torch.Generator()
+        generator.manual_seed(seed)
+        return generator
+
+    @property
+    def weights(self) -> torch.Tensor:
+        # Default weights are set to uniform
+        if self._weights is None:
+            return torch.tensor([1/len(self.ordered_dataset_names) for _ in self.ordered_dataset_names])
+        if isinstance(self._weights, list):
+            return torch.tensor(self.weights)
+        return self._weights
+
+    @weights.setter
+    def weights(self, weights) -> torch.Tensor:
+        if isinstance(weights, list):
+            self._weights = torch.tensor(weights)
+        elif isinstance(weights, torch.Tensor):
+            self._weights = weights
+        else:
+            raise TypeError("weights must be a list or Tensor")
+
+    @property
+    def distribution(self) -> torch.distributions.distribution.Distribution:
+        return self._distribution
+
+    @distribution.setter
+    def distribution(self, dist):
+        self._distribution = dist
+
+    def update_distribution(self):
+        assert(self.weights is not None)
+        self.distribution = torch.distributions.categorical.Categorical(probs=self.weights)
+
+    def __iter__(self):
+        while True:
+            dataset = self.ordered_dataset_names[self.distribution.sample()]
+            yield next(self.datasets[dataset])
 
 @dataclass
 class MTCLDataCollator:
@@ -92,14 +185,15 @@ class MTCLDataCollator:
             return_tensors=self.return_tensors
 
         if not self.pretrain:
-            input_ids, target_ids, answer_choices_ids, labels, idx = zip(*batch)
+            dataset_name, input_ids, target_ids, answer_choices_ids, labels, idx = zip(*batch)
         else:
-            input_ids, target_ids = zip(*batch)
+            dataset_name, input_ids, target_ids = zip(*batch)
 
         input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
         attention_mask = (input_ids != self.tokenizer.pad_token_id).float()  # [bs, max_seq_len]
         
         output_batch = {
+            "dataset_name": dataset_name,
             "input_ids": input_ids,
             "attention_mask": attention_mask,
         }
