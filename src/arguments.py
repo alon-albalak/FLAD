@@ -2000,6 +2000,12 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
             "help": "Stop training when the metric specified for `metric_for_best_model` worsend for `patience` number of evaluation calls."
         }
     )
+    log_samples_per_dataset: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Whether to log the number of samples seen per dataset"
+        }
+    )
 
     def __post_init__(self):
         if not any([self.do_train, self.do_eval, self.do_predict]):
