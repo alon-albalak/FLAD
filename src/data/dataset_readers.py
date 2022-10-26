@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import numpy as np
+from data_utils import get_dataset_name
 from datasets import load_dataset, load_from_disk, Dataset
 from promptsource.templates import DatasetTemplates
 import pandas as pd
@@ -107,34 +108,41 @@ def get_datasets(
         max_samples=None,
         template_idx=-1,
         target_dataset_args=None,
+        return_as_dict=False
     ):
     assert(split in ['train','validation','test'])
     if dataset_or_mixture_name == "T0Mixture":
-        return get_T0MixtureDatasets(split, max_samples)
+        return get_T0MixtureDatasets(split, max_samples, return_as_dict)
     elif dataset_or_mixture_name in EvalMixture:
-        return get_eval_dataset(dataset_or_mixture_name, split, target_dataset_args)
+        return get_eval_dataset(dataset_or_mixture_name, split, target_dataset_args, return_as_dict)
 
     raise ValueError(f"Unknown dataset or mixture: {dataset_or_mixture_name}")
     
 
-def get_T0MixtureDatasets(split, max_samples=None):
+def get_T0MixtureDatasets(split, max_samples=None, return_as_dict=True):
     """
     T0MixtureDatasets creates a separate dataset for each dataset in the mixture
     """
-    datasets = []
-    for name, subset in TOMixture:
+    datasets = {} if return_as_dict else []
+    for name, subset in TOMixture[:5]:
         dataset = load_dataset(name, subset, split=split)
         if max_samples:
             dataset = Dataset.from_dict(dataset[:max_samples])
         templates = [template for id, template in DatasetTemplates(name, subset).templates.items()]
         dataset.templates = templates
-        datasets.append(dataset)
+        dataset.name = get_dataset_name(name, subset)
+
+        if return_as_dict:
+            datasets[get_dataset_name(name, subset)] = dataset
+        else:
+            datasets.append(dataset)
+
 
         logger.info(f"Loaded dataset {name}/{subset} with {len(templates)} templates")
         assert(len(templates) > 0), "No templates"
     return datasets
 
-def get_eval_dataset(name, split, target_dataset_args):
+def get_eval_dataset(name, split, target_dataset_args, return_as_dict=False):
     READERS={
         "rte": RTEReader,
         "h-swag": HSwagReader,
@@ -158,7 +166,11 @@ def get_eval_dataset(name, split, target_dataset_args):
         dataset = Dataset.from_list(dataset)
     templates = reader.templates
     dataset.templates = templates
-    return dataset
+    dataset.name = get_dataset_name(name, None)
+    if return_as_dict:
+        return {get_dataset_name(name, None): dataset}
+    else:
+        return dataset
 
 
 DATASETS_OFFLINE = "/fruitbasket/datasets/datasets_offline"

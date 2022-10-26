@@ -49,7 +49,7 @@ from arguments import (
 )
 from data.dataset_readers import get_datasets
 from trainer import MTCLSeq2SeqTrainer
-from data.data_utils import DatasetWithTemplate
+from data.data_utils import DatasetWithTemplate, MTCLWeightedIterableDataset
 from torch.utils.data import ConcatDataset, Subset
 
 
@@ -134,20 +134,27 @@ def main():
     assert(training_args.train_strategy != "auxiliary_only"), "Validation with auxiliary tasks is not implemented"
 
     # Get train/validation/test datasets
+    # ONLY TRAIN DATASET SHOULD BE DICT
     if training_args.do_train:
         train_dataset = get_datasets(data_args.auxiliary_dataset,split="train",
-                    max_samples=data_args.max_samples_per_auxiliary_dataset)
+                    max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True)
+
         if training_args.train_strategy == "auxiliary_only":
-            validation_dataset = get_datasets(data_args.auxiliary_dataset, split="validation")
+            validation_dataset = get_datasets(data_args.auxiliary_dataset, split="validation", return_as_dict=False)
+
         else:
-            train_dataset.append(get_datasets(data_args.target_dataset, split="train", target_dataset_args=target_dataset_args))
-            validation_dataset = get_datasets(data_args.target_dataset, split="validation", target_dataset_args=target_dataset_args)
+            train_dataset.update(get_datasets(data_args.target_dataset, split="train",
+                                target_dataset_args=target_dataset_args, return_as_dict=True))
+            validation_dataset = get_datasets(data_args.target_dataset, split="validation",
+                                target_dataset_args=target_dataset_args, return_as_dict=False)
 
     if training_args.do_eval:
-        test_dataset = get_datasets(data_args.target_dataset, split="test", target_dataset_args=target_dataset_args)
+        test_dataset = get_datasets(data_args.target_dataset, split="test", 
+                    target_dataset_args=target_dataset_args, return_as_dict=False)
 
     if training_args.do_predict:
-        predict_dataset = get_datasets(data_args.target_dataset, split="test", target_dataset_args=target_dataset_args)
+        predict_dataset = get_datasets(data_args.target_dataset, split="test",
+                    target_dataset_args=target_dataset_args, return_as_dict=False)
 
     # Load pretrained model and tokenizer
     #
@@ -179,13 +186,18 @@ def main():
 
     # Convert datasets to torch.dataset items
     if training_args.do_train:
-        train_dataset = ConcatDataset([DatasetWithTemplate(dataset, tokenizer, include_answer_choices=False) for dataset in train_dataset])
+        train_dataset = {name: DatasetWithTemplate(dataset, tokenizer, include_answer_choices=False) for name, dataset in train_dataset.items()}
         if training_args.train_strategy == "auxiliary_only":
             validation_dataset = ConcatDataset([DatasetWithTemplate(dataset, tokenizer, include_answer_choices=False, add_special_tokens=True) for dataset in validation_dataset])
         else:
             validation_dataset = DatasetWithTemplate(validation_dataset, tokenizer, include_answer_choices=True, add_special_tokens=True)
-    if training_args.do_eval or training_args.do_predict:
+    if training_args.do_eval:
         test_dataset = DatasetWithTemplate(test_dataset, tokenizer, include_answer_choices=True, add_special_tokens=True)
+    if training_args.do_predict:
+        predict_dataset = DatasetWithTemplate(predict_dataset, tokenizer, include_answer_choices=True, add_special_tokens=True)
+
+    train_dataset = MTCLWeightedIterableDataset(train_dataset, seed=training_args.seed)
+
 
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
