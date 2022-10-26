@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import numpy as np
-from data_utils import get_dataset_name
+from .data_utils import get_dataset_name
 from datasets import load_dataset, load_from_disk, Dataset
 from promptsource.templates import DatasetTemplates
 import pandas as pd
@@ -10,6 +10,8 @@ import pandas as pd
 # set logging level to INFO
 logger = logging.getLogger(__name__)
 logger.setLevel(20)
+
+CACHE_DIR=os.getenv("HF_HOME", default=None)
 
 TOMixture = [
     ("glue","mrpc"), # Paraphrase identification
@@ -81,26 +83,26 @@ EvalMixture = [
     "wic",
     "winogrande",
     "cb",
-    "storycloze",
+    "story_cloze",
     "anli-r1",
     "anli-r2",
     "anli-r3",
     "wsc"
 ]
 
-# TEST_SET_SPLITS = {
-#     "rte": "validation"
-#     "h-swag",
-#     "copa",
-#     "wic": "validation"
-#     "winogrande",
-#     "cb",
-#     "storycloze",
-#     "anli-r1",
-#     "anli-r2",
-#     "anli-r3",
-#     "wsc"
-# }
+TEST_SET_SPLITS = {
+    "rte": "validation",
+    "h-swag": "validation",
+    "copa": "validation",
+    "wic": "validation",
+    "winogrande": "validation",
+    "cb": "validation",
+    "story_cloze": "validation", # TODO - ALON: Need to download manually, and verify that we don't have test dataset
+    "anli-r1": "test",
+    "anli-r2": "test",
+    "anli-r3": "test",
+    "wsc": "validation"
+}
 
 def get_datasets(
         dataset_or_mixture_name,
@@ -124,8 +126,8 @@ def get_T0MixtureDatasets(split, max_samples=None, return_as_dict=True):
     T0MixtureDatasets creates a separate dataset for each dataset in the mixture
     """
     datasets = {} if return_as_dict else []
-    for name, subset in TOMixture[:5]:
-        dataset = load_dataset(name, subset, split=split)
+    for name, subset in TOMixture:
+        dataset = load_dataset(name, subset, split=split, cache_dir=CACHE_DIR)
         if max_samples:
             dataset = Dataset.from_dict(dataset[:max_samples])
         templates = [template for id, template in DatasetTemplates(name, subset).templates.items()]
@@ -150,15 +152,17 @@ def get_eval_dataset(name, split, target_dataset_args, return_as_dict=False):
         "wic": WiCReader,
         "winogrande": WinograndeReader,
         "cb": CBReader,
-        "storycloze": StoryClozeReader,
+        "story_cloze": StoryClozeReader,
         "anli-r1": ANLIR1Reader,
         "anli-r2": ANLIR2Reader,
         "anli-r3": ANLIR3Reader,
         "wsc": WSCFixedReader,
     }
     reader = READERS[name](target_dataset_args)
-    if target_dataset_args.num_shot is None:
+    if target_dataset_args.num_shot is None or split in ["evaluation", "prediction"]:
         dataset = reader.read_orig_dataset(split)
+    elif split in ["evaluation", "prediction"]:
+        dataset = reader.read_orig_dataset(TEST_SET_SPLITS[name])
     else:
         dataset = reader.read_few_shot_dataset(name, target_dataset_args.num_shot,
                                     target_dataset_args.few_shot_random_seed, split)
@@ -248,7 +252,7 @@ class BaseDatasetReader(object):
         if os.path.exists(DATASETS_OFFLINE):
             orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, *self.dataset_stash))[split]
         else:
-            orig_data = load_dataset(*self.dataset_stash, split=split)
+            orig_data = load_dataset(*self.dataset_stash, split=split, cache_dir=CACHE_DIR)
         return orig_data
 
     def read_few_shot_dataset(self, name, num_shot, few_shot_random_seed, split):
@@ -319,7 +323,8 @@ class StoryClozeReader(BaseDatasetReader):
             orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, *self.dataset_stash))[split]
         else:
             orig_data = load_dataset(
-                *self.dataset_stash, split=split, data_dir="/fruitbasket/datasets/hugging_face/story_cloze"
+                *self.dataset_stash, split=split, cache_dir=CACHE_DIR
+                # , data_dir="/fruitbasket/datasets/hugging_face/story_cloze"
             )
         orig_data = [example for example in orig_data]
         for idx, example in enumerate(orig_data):
@@ -333,8 +338,8 @@ class ANLIR1Reader(BaseDatasetReader):
         super().__init__(dataset_stash=("anli",))
 
     def read_orig_dataset(self, split):
-        if split == "validation":
-            split = "test"
+        # if split == "validation":
+        #     split = "test"
         orig_data = [example for example in super().read_orig_dataset(f"{split}_r1")]
         for idx, example in enumerate(orig_data):
             example["idx"] = idx
@@ -346,8 +351,8 @@ class ANLIR2Reader(BaseDatasetReader):
         super().__init__(dataset_stash=("anli",))
 
     def read_orig_dataset(self, split):
-        if split == "validation":
-            split = "test"
+        # if split == "validation":
+        #     split = "test"
         orig_data = [example for example in super().read_orig_dataset(f"{split}_r2")]
         for idx, example in enumerate(orig_data):
             example["idx"] = idx
@@ -359,8 +364,8 @@ class ANLIR3Reader(BaseDatasetReader):
         super().__init__(dataset_stash=("anli",))
 
     def read_orig_dataset(self, split):
-        if split == "validation":
-            split = "test"
+        # if split == "validation":
+        #     split = "test"
         orig_data = [example for example in super().read_orig_dataset(f"{split}_r3")]
         for idx, example in enumerate(orig_data):
             example["idx"] = idx
@@ -641,7 +646,7 @@ class RaftReader(object):
     def __init__(self, config):
         self.config = config
         self.dataset_name = config.dataset
-        self.orig_data = load_dataset("ought/raft", name=self.dataset_name)
+        self.orig_data = load_dataset("ought/raft", name=self.dataset_name, cache_dir=CACHE_DIR)
         self.answer_choices = self.orig_data["train"].features["Label"].names[1:]
         if self.config.dataset == "banking_77" and config.cleaned_answer_choices_b77:
             self.answer_choices = [answer.replace("_", " ").replace(". ", " ") for answer in self.answer_choices]
