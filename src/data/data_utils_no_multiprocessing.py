@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Optional, Any, Union, Dict, List
-import math
 import numpy as np
 import torch
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -21,12 +20,8 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
         self.include_answer_choices = include_answer_choices
         self.add_special_tokens = add_special_tokens
         self.index_map = np.arange(len(dataset))
-        self.start = None
-        self.end = None
 
     def __len__(self):
-        if self.start is not None and self.end is not None:
-            return self.end-self.start
         return len(self.dataset)
 
     def __getitem__(self, idx):
@@ -91,14 +86,7 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
     def shuffle_indices(self):
         self.rng.shuffle(self.index_map)
 
-    def initialize_iterable(self, seed, start=None, end=None):
-        if start is not None and end is not None and \
-            self.start is None and self.end is None:
-            
-            self.start = math.ceil(len(self.dataset)*start/100)
-            self.end = min(math.ceil(len(self.dataset)*end/100), len(self.dataset))
-            self.index_map = self.index_map[self.start:self.end]
-
+    def initialize_iterable(self, seed):
         self.rng = np.random.default_rng(seed)
         self._restart()
 
@@ -128,21 +116,18 @@ class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
         seed = None
     ) -> None:
 
+        for dataset in datasets.values():
+            dataset.initialize_iterable(seed)
         self.datasets = datasets
-        self.ordered_dataset_names = list(datasets.keys())
-        self.weights = weights
-        self.seed = seed
+        self._weights = weights
         self.generator = self._initialize_generator(seed)
+        self.ordered_dataset_names = list(datasets.keys())
 
         if not isinstance(self.weights, (torch.Tensor, list)):
             raise TypeError("weights should be a list or tensor of floats, "
                             f"but got weights={self.weights}")
 
         self.update_distribution()
-
-    def _initialize_datasets(self, seed, worker_start=None, worker_end=None):
-        for dataset in self.datasets.values():
-            dataset.initialize_iterable(seed, worker_start, worker_end)
 
     def _initialize_generator(self, seed):
         generator = torch.Generator()
@@ -151,6 +136,11 @@ class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
 
     @property
     def weights(self) -> torch.Tensor:
+        # Default weights are set to uniform
+        if self._weights is None:
+            return torch.tensor([1/len(self.ordered_dataset_names) for _ in self.ordered_dataset_names])
+        if isinstance(self._weights, list):
+            return torch.tensor(self._weights)
         return self._weights
 
     @weights.setter
@@ -159,8 +149,6 @@ class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
             self._weights = torch.tensor(weights)
         elif isinstance(weights, torch.Tensor):
             self._weights = weights
-        elif weights is None:
-            self._weights = torch.tensor([1/len(self.ordered_dataset_names) for _ in self.ordered_dataset_names])
         else:
             raise TypeError("weights must be a list or Tensor")
 
@@ -176,27 +164,10 @@ class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
         assert(self.weights is not None)
         self.distribution = torch.distributions.categorical.Categorical(probs=self.weights)
 
-    def _infinite_iterator(self):
+    def __iter__(self):
         while True:
             dataset = self.ordered_dataset_names[self.distribution.sample()]
             yield next(self.datasets[dataset])
-
-    def __iter__(self):
-        worker_info = torch.utils.data.get_worker_info()
-        if worker_info:
-            num_workers = worker_info.num_workers
-            worker_id = worker_info.id
-            worker_generator = self._initialize_generator(self.seed + worker_id)
-            seed = worker_generator.seed()
-            per_worker = int(math.ceil(100 / float(num_workers)))
-            worker_start = worker_id*per_worker
-            worker_end = min(worker_start + per_worker, 100)
-            self._initialize_datasets(seed, worker_start, worker_end)
-        else:
-            worker_id = 0
-            self._initialize_datasets(self.generator.seed())
-
-        return self._infinite_iterator()
 
 @dataclass
 class MTCLDataCollator:
