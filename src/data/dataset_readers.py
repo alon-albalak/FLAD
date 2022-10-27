@@ -97,11 +97,25 @@ TEST_SET_SPLITS = {
     "wic": "validation",
     "winogrande": "validation",
     "cb": "validation",
-    "story_cloze": "validation", # TODO - ALON: Need to download manually, and verify that we don't have test dataset
+    "story_cloze": "validation",
     "anli-r1": "test",
     "anli-r2": "test",
     "anli-r3": "test",
     "wsc": "validation"
+}
+
+TEST_SET_SHOTS = {
+    "anli-r1": 50,
+    "anli-r2": 50,
+    "anli-r3": 50,
+    "cb": 32,
+    "copa": 32,
+    "h-swag": 20,
+    "rte": 32,
+    "story_cloze": 70,
+    "wic": 32,
+    "winogrande": 50,
+    "wsc": 32
 }
 
 def get_datasets(
@@ -159,11 +173,13 @@ def get_eval_dataset(name, split, target_dataset_args, return_as_dict=False):
         "wsc": WSCFixedReader,
     }
     reader = READERS[name](target_dataset_args)
-    if target_dataset_args.num_shot is None or split in ["evaluation", "prediction"]:
-        dataset = reader.read_orig_dataset(split)
-    elif split in ["evaluation", "prediction"]:
+    # if testing, use full dataset
+    if split == "test":
         dataset = reader.read_orig_dataset(TEST_SET_SPLITS[name])
+    elif target_dataset_args.num_shot is None:
+        dataset = reader.read_orig_dataset(split)
     else:
+        assert(target_dataset_args.num_shot == TEST_SET_SHOTS[name])
         dataset = reader.read_few_shot_dataset(name, target_dataset_args.num_shot,
                                     target_dataset_args.few_shot_random_seed, split)
     if isinstance(dataset, list):
@@ -322,10 +338,9 @@ class StoryClozeReader(BaseDatasetReader):
         if os.path.exists(DATASETS_OFFLINE):
             orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, *self.dataset_stash))[split]
         else:
-            orig_data = load_dataset(
-                *self.dataset_stash, split=split, cache_dir=CACHE_DIR
-                # , data_dir="/fruitbasket/datasets/hugging_face/story_cloze"
-            )
+            orig_data = load_dataset(*self.dataset_stash, split=split,
+                        data_dir="data/story_cloze/", cache_dir=CACHE_DIR)
+
         orig_data = [example for example in orig_data]
         for idx, example in enumerate(orig_data):
             example["label"] = example["answer_right_ending"] - 1
