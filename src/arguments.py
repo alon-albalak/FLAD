@@ -2013,8 +2013,21 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
             "help": "Whether to log the number of samples seen per dataset"
         }
     )
+    relative_sampling_from_target: Optional[float] = field(
+        default = -1.,
+        metadata={
+            "help": "Rate at which to sample from target dataset relative to other datasets."
+                    " Only used when train_strategy=auxiliary_and_target and gradient_directed=False"
+        }
+    )
 
     def __post_init__(self):
         if not any([self.do_train, self.do_eval, self.do_predict]):
             raise ValueError("Must specify --do_train --do_eval OR --do_predict")
+        if self.relative_sampling_from_target != -1.:
+            if self.relative_sampling_from_target < 0:
+                raise ValueError("relative_sampling_from_target must be non-negative")
+            if self.train_strategy != "auxiliary_and_target":
+                raise ValueError("Relative sampling from target dataset is only compatible \
+                    when training with --train_strategy=auxiliary_and_target")
         return super().__post_init__()

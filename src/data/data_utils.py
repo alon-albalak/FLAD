@@ -119,7 +119,7 @@ class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
         for dataset in datasets.values():
             dataset.initialize_iterable(seed)
         self.datasets = datasets
-        self._weights = weights
+        self.weights = weights
         self.generator = self._initialize_generator(seed)
         self.ordered_dataset_names = list(datasets.keys())
 
@@ -140,7 +140,7 @@ class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
         if self._weights is None:
             return torch.tensor([1/len(self.ordered_dataset_names) for _ in self.ordered_dataset_names])
         if isinstance(self._weights, list):
-            return torch.tensor(self.weights)
+            return torch.tensor(self._weights)
         return self._weights
 
     @weights.setter

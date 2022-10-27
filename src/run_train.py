@@ -214,7 +214,16 @@ def main():
         if isinstance(train_dataset, dict):
             # If training on a mixture of tasks, use weighted mixture dataset
             train_dataset = {name: DatasetWithTemplate(dataset, tokenizer, include_answer_choices=False) for name, dataset in train_dataset.items()}
-            train_dataset = MTCLWeightedIterableDataset(train_dataset, seed=training_args.seed)
+            # If weights are none, will initialize with uniform weights
+            weights = None
+            if training_args.relative_sampling_from_target != -1:
+                # if we want to sample more/less frequently from target dataset
+                uniform_weight = 1/len(train_dataset)
+                weights = [uniform_weight \
+                            if name != data_args.target_dataset \
+                            else uniform_weight*training_args.relative_sampling_from_target \
+                        for name in train_dataset]
+            train_dataset = MTCLWeightedIterableDataset(train_dataset, weights=weights, seed=training_args.seed)
         
         elif isinstance(train_dataset, Dataset):
             train_dataset = DatasetWithTemplate(train_dataset, tokenizer, include_answer_choices=False)
