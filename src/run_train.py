@@ -39,6 +39,7 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, is_offline_mode, send_example_telemetry
 from transformers.utils.versions import require_version
+from datasets import Dataset
 
 from arguments import (
     ModelArguments,
@@ -49,7 +50,6 @@ from arguments import (
 from data.dataset_readers import get_datasets
 from trainer import MTCLSeq2SeqTrainer
 from data.data_utils import DatasetWithTemplate, MTCLWeightedIterableDataset
-from torch.utils.data.dataset import Dataset
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -71,12 +71,17 @@ except (LookupError, OSError):
 
 
 def log_dataset_info(split, datasets):
-    msg = f"Dataset Metadata ({split}): "
+    total_examples = 0
+    msg = f"Dataset Metadata ({split}):\n"
     if isinstance(datasets, dict):
         for name, dataset in datasets.items():
-            msg += f"| {name} - {len(dataset)} samples"
+            total_examples += len(dataset)
+            msg += f"| {name} - {len(dataset)} samples "
     else:
-        msg += f"| {datasets.name} - {len(datasets)} samples"
+        total_examples = len(datasets)
+        msg += f"| {datasets.name} - {len(datasets)} samples "
+
+    msg += f"\nTotal samples: {total_examples}"
 
     logger.info(msg)
 
@@ -274,10 +279,6 @@ def main():
         trainer.save_model()  # Saves the tokenizer too for easy upload
 
         metrics = train_result.metrics
-        max_train_samples = (
-            data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
-        )
-        metrics["train_samples"] = min(max_train_samples, len(train_dataset))
 
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
@@ -294,8 +295,6 @@ def main():
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
         metrics = trainer.evaluate(test_dataset, max_length=max_length, num_beams=num_beams, metric_key_prefix="eval")
-        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(test_dataset)
-        metrics["eval_samples"] = min(max_eval_samples, len(test_dataset))
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
