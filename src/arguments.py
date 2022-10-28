@@ -12,55 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
-import json
-import math
-from multiprocessing.sharedctypes import Value
-import os
-import warnings
-from dataclasses import asdict, dataclass, field, fields
-from datetime import timedelta
-from enum import Enum
-from pathlib import Path
+
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
-from packaging import version
-
-from transformers.debug_utils import DebugOption
-from transformers.trainer_utils import (
-    EvaluationStrategy,
-    FSDPOption,
-    HubStrategy,
-    IntervalStrategy,
-    SchedulerType,
-    ShardedDDPOption,
-)
 from transformers.utils import (
     ExplicitEnum,
-    cached_property,
-    ccl_version,
-    get_full_repo_name,
-    is_accelerate_available,
-    is_psutil_available,
-    is_sagemaker_dp_enabled,
     is_sagemaker_mp_enabled,
-    is_torch_available,
-    is_torch_bf16_cpu_available,
-    is_torch_bf16_gpu_available,
-    is_torch_tf32_available,
     is_torch_tpu_available,
     logging,
-    requires_backends,
-    torch_required,
-    add_start_docstrings
 )
 
 from transformers import Seq2SeqTrainingArguments
-
-
-if is_torch_available():
-    import torch
-    import torch.distributed as dist
 
 if is_torch_tpu_available(check_device=False):
     import torch_xla.core.xla_model as xm
@@ -1994,6 +1957,12 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
             "help":
             "Option to use gradients to determine auxiliary dataset sampling when using auxiliary_and_target train_strategy."
             }
+    )
+    mtcl_strategy: Optional[str] = field(
+        default="batched",
+        metadata={
+            "help": "Options are 'batched' or 'samples'"
+        }
     )
     length_norm: Optional[int] = field(
         default=1,

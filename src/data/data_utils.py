@@ -1,8 +1,9 @@
 from dataclasses import dataclass
-from typing import Optional, Any, Union, Dict, List
+from typing import Optional, Any, Union, Dict, List, Iterator
 import math
 import numpy as np
 import torch
+from torch.utils.data.sampler import BatchSampler, RandomSampler
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils import PaddingStrategy
 
@@ -117,7 +118,70 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
         # print(f"Cur idx: {self.cur_idx} - Mapped idx: {self.index_map[self.cur_idx]}")
         return self.__getitem__(int(self.index_map[self.cur_idx]))
 
+class MTCLWeightedMapDataset(torch.utils.data.dataset.ConcatDataset):
+    # mapped type dataset need to implement the __getitem__() and __len__() protocols
+    # Can possibly just use concat dataset since each sample in the dataset has dataset name
+    def __init__(self,datasets, weights):
+        super(MTCLWeightedMapDataset, self).__init__(datasets.values())
 
+class MTCLBatchSampler(torch.utils.data.BatchSampler):
+    def __init__(
+        self,
+        dataset: torch.utils.data.dataset.Dataset,
+        batch_size: int,
+        generator: Optional[torch.Generator] = None,
+        drop_last: bool = False,
+        ) -> None:
+        
+        self.batch_size=batch_size
+        self.generator=generator
+        self.drop_last=drop_last
+        self._tasks, self._task_idxs = [], {}
+        for i, datum in enumerate(dataset):
+            task_name = datum[0]
+            assert(isinstance(task_name, str))
+            if task_name not in self._task_idxs.keys():
+                self._tasks.append(task_name)
+                self._task_idxs[task_name] = []
+            self._task_idxs[task_name].append(i)
+
+        self._reset(generator)
+        self.num_batches = len(self._batch_tasks)
+
+    def _reset(self, generator):
+        # Use built-in torch samplers to randomize and batch data from each task
+        self._samplers = {task: BatchSampler(RandomSampler(self._task_idxs[task], generator=generator), \
+                batch_size=self.batch_size, drop_last=self.drop_last)\
+            for task in self._tasks}
+        # super complicated way to make a flattened list of task names corresponding to batches
+        self._batch_tasks = [thing for l in [[task]*len(sampler) for task,sampler in self._samplers.items()] for thing in l]
+        # convert samplers into iterables
+        self._samplers = {task: iter(sampler) for task, sampler in self._samplers.items()}
+
+    def __iter__(self) -> Iterator[int]:
+        if self.generator is None:
+            seed = int(torch.empty((), dtype=torch.int64).random_().item())
+            generator = torch.Generator()
+            generator.manual_seed(seed)
+        else:
+            generator = self.generator
+        
+        batch_idxs = torch.randperm(self.num_batches, generator=generator).tolist()
+        # print(f"BATCH IDXS: {batch_idxs}")
+
+        for idx in batch_idxs:
+            batch_task = self._batch_tasks[idx]
+            task_indices = next(self._samplers[batch_task])
+            dataset_indices = [self._task_idxs[batch_task][task_idx] for task_idx in task_indices]
+            # print(f"Dataset idx: {dataset_indices}")
+            yield dataset_indices
+        self._reset(generator)
+
+    def __len__(self) -> int:
+        return self.num_batches
+
+class MTCLDistributedBatchSampler(torch.utils.data.distributed.DistributedSampler):
+    pass
 
 class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
 

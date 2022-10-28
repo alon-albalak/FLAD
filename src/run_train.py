@@ -49,7 +49,7 @@ from arguments import (
 )
 from data.dataset_readers import get_datasets
 from trainer import MTCLSeq2SeqTrainer
-from data.data_utils import DatasetWithTemplate, MTCLWeightedIterableDataset
+from data.data_utils import DatasetWithTemplate, MTCLWeightedIterableDataset, MTCLWeightedMapDataset
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -223,8 +223,11 @@ def main():
                             if name != data_args.target_dataset \
                             else uniform_weight*training_args.relative_sampling_from_target \
                         for name in train_dataset]
-            train_dataset = MTCLWeightedIterableDataset(train_dataset, weights=weights, seed=training_args.seed)
-        
+            if training_args.mtcl_strategy == "samples":
+                train_dataset = MTCLWeightedIterableDataset(train_dataset, weights=weights, seed=training_args.seed)
+            else:
+                train_dataset = MTCLWeightedMapDataset(train_dataset, weights)
+
         elif isinstance(train_dataset, Dataset):
             train_dataset = DatasetWithTemplate(train_dataset, tokenizer, include_answer_choices=False)
         

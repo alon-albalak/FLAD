@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch import nn
 import torch.distributed as dist
-from torch.utils.data import DataLoader, Dataset, RandomSampler
+from torch.utils.data import DataLoader, Dataset, RandomSampler, BatchSampler
 from torch.utils.data.distributed import DistributedSampler
 
 from transformers import Seq2SeqTrainer
@@ -49,7 +49,7 @@ from transformers.pytorch_utils import is_torch_less_than_1_11
 if is_datasets_available():
     import datasets
 
-from data.data_utils import MTCLDataCollator
+from data.data_utils import MTCLBatchSampler, MTCLDataCollator, MTCLDistributedBatchSampler
 
 logger = logging.get_logger(__name__)
 
@@ -63,6 +63,9 @@ if is_torch_tpu_available(check_device=False):
     import torch_xla.debug.metrics as met
     import torch_xla.distributed.parallel_loader as pl
 
+if is_sagemaker_mp_enabled():
+    from transformers.trainer_pt_utils import smp_forward_backward
+
 class EvalLoopOutput(NamedTuple):
     predictions: Union[np.ndarray, Tuple[np.ndarray]]
     label_ids: Optional[Union[np.ndarray, Tuple[np.ndarray]]]
@@ -72,6 +75,54 @@ class EvalLoopOutput(NamedTuple):
     num_samples: Optional[int]
 
 class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
+    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+        """
+        Perform a training step on a batch of inputs.
+
+        Subclass and override to inject custom behavior.
+
+        Args:
+            model (`nn.Module`):
+                The model to train.
+            inputs (`Dict[str, Union[torch.Tensor, Any]]`):
+                The inputs and targets of the model.
+
+                The dictionary will be unpacked before being fed to the model. Most models expect the targets under the
+                argument `labels`. Check your model's documentation for all accepted arguments.
+
+        Return:
+            `torch.Tensor`: The tensor with training loss on this batch.
+        """
+        model.train()
+        inputs = self._prepare_inputs(inputs)
+
+        if is_sagemaker_mp_enabled():
+            loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
+            return loss_mb.reduce_mean().detach().to(self.args.device)
+
+        with self.compute_loss_context_manager():
+            loss = self.compute_loss(model, inputs)
+
+        if self.args.n_gpu > 1:
+            loss = loss.mean()  # mean() to average on multi-gpu parallel training
+
+        if self.args.gradient_accumulation_steps > 1 and not self.deepspeed:
+            # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
+            loss = loss / self.args.gradient_accumulation_steps
+
+        if self.do_grad_scaling:
+            self.scaler.scale(loss).backward()
+        elif self.use_apex:
+            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                scaled_loss.backward()
+        elif self.deepspeed:
+            # loss gets scaled under gradient_accumulation_steps in deepspeed
+            loss = self.deepspeed.backward(loss)
+        else:
+            loss.backward()
+
+        return loss.detach()
+
     def compute_loss(
         self,
         model: torch.nn.Module,
@@ -112,6 +163,80 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
 
         return (loss, outputs) if return_outputs else loss
 
+    def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
+        if self.train_dataset is None or not has_length(self.train_dataset):
+            return None
+
+        generator = None
+        if self.args.world_size <= 1:
+            generator = torch.Generator()
+            # for backwards compatibility, we generate a seed here (which is sampled from a generator seeded with
+            # `args.seed`) if data_seed isn't provided.
+            # Further on in this method, we default to `args.seed` instead.
+            if self.args.data_seed is None:
+                seed = int(torch.empty((), dtype=torch.int64).random_().item())
+            else:
+                seed = self.args.data_seed
+            generator.manual_seed(seed)
+
+        seed = self.args.data_seed if self.args.data_seed is not None else self.args.seed
+
+        # Build the sampler.
+        if self.args.group_by_length:
+            if is_datasets_available() and isinstance(self.train_dataset, datasets.Dataset):
+                lengths = (
+                    self.train_dataset[self.args.length_column_name]
+                    if self.args.length_column_name in self.train_dataset.column_names
+                    else None
+                )
+            else:
+                lengths = None
+            model_input_name = self.tokenizer.model_input_names[0] if self.tokenizer is not None else None
+            if self.args.world_size <= 1:
+                return LengthGroupedSampler(
+                    self.args.train_batch_size * self.args.gradient_accumulation_steps,
+                    dataset=self.train_dataset,
+                    lengths=lengths,
+                    model_input_name=model_input_name,
+                    generator=generator,
+                )
+            else:
+                return DistributedLengthGroupedSampler(
+                    self.args.train_batch_size * self.args.gradient_accumulation_steps,
+                    dataset=self.train_dataset,
+                    num_replicas=self.args.world_size,
+                    rank=self.args.process_index,
+                    lengths=lengths,
+                    model_input_name=model_input_name,
+                    seed=seed,
+                )
+
+        else:
+            if self.args.gradient_directed:
+                if self.args.world_size <= 1:
+                    return MTCLBatchSampler(
+                        self.train_dataset,
+                        batch_size=self.args.train_batch_size,
+                        generator=generator,
+                        drop_last=self.args.dataloader_drop_last
+                        )
+                else:
+                    return MTCLDistributedBatchSampler(
+                        self.train_dataset,
+                        num_replicas=self.args.world_size,
+                        rank=self.args.process_index,
+                        seed=seed
+                    )
+            else:
+                if self.args.world_size <= 1:
+                    return RandomSampler(self.train_dataset, generator=generator)
+                else:
+                    return DistributedSampler(
+                        self.train_dataset,
+                        num_replicas=self.args.world_size,
+                        rank=self.args.process_index,
+                        seed=seed,
+                    )
 
     def get_train_dataloader(self) -> DataLoader:
         """
@@ -160,6 +285,14 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
 
         train_sampler = self._get_train_sampler()
 
+        if isinstance(train_sampler, BatchSampler):
+            return DataLoader(
+                train_dataset,
+                batch_sampler=train_sampler,
+                collate_fn=data_collator,
+                num_workers=self.args.dataloader_num_workers,
+                pin_memory=self.args.dataloader_pin_memory,
+            )
         return DataLoader(
             train_dataset,
             batch_size=self._train_batch_size,
