@@ -223,8 +223,11 @@ def main():
                             if name != data_args.target_dataset \
                             else uniform_weight*training_args.relative_sampling_from_target \
                         for name in train_dataset]
+
+            # If calculating per-sample gradients, use Iterable dataset
             if training_args.mtcl_strategy == "samples":
                 train_dataset = MTCLWeightedIterableDataset(train_dataset, weights=weights, seed=training_args.seed)
+            # If calculating per-batch gradients, use Map dataset
             else:
                 train_dataset = MTCLWeightedMapDataset(train_dataset, weights)
 
