@@ -1075,7 +1075,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                 for name, param in model.named_parameters():
                     # print(name)
                     if "weight" in name:
-                        grads.append(param.grad.detach().cpu())
+                        grads.append(param.grad.detach())
                 grads = torch.concat([g.flatten() for g in grads])
             return loss.detach(), grads
 
@@ -1177,7 +1177,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             for name, param in model.named_parameters():
                 # print(name)
                 if "weight" in name:
-                    grad.append(param.grad.detach().cpu())
+                    grad.append(param.grad.detach())
             grad = torch.concat([g.flatten() for g in grad])
         model.zero_grad()
         self._target_grad = grad
