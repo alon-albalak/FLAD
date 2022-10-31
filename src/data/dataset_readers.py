@@ -2,7 +2,6 @@ import os
 import json
 import logging
 import numpy as np
-from .data_utils import get_dataset_name
 from datasets import load_dataset, load_from_disk, Dataset
 from promptsource.templates import DatasetTemplates
 import pandas as pd
@@ -117,6 +116,13 @@ TEST_SET_SHOTS = {
     "winogrande": 50,
     "wsc": 32
 }
+
+def get_dataset_name(name: str, subset: str):
+    if subset is not None:
+        canonized_name = f"{name}/{subset}"
+    else:
+        canonized_name = name
+    return canonized_name
 
 def get_datasets(
         dataset_or_mixture_name,

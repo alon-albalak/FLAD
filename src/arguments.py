@@ -1989,6 +1989,12 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
                     " Only used when train_strategy=auxiliary_and_target and gradient_directed=False"
         }
     )
+    similarity_beta: Optional[float] = field(
+        default=1.,
+        metadata={
+            "help": "If <1 then gradient similarity updates will be an exponential moving average"
+        }
+    )
 
     def __post_init__(self):
         if not any([self.do_train, self.do_eval, self.do_predict]):

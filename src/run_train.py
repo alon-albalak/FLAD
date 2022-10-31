@@ -47,9 +47,14 @@ from arguments import (
     TargetDatasetArguments,
     MTCLTrainingArguments
 )
-from data.dataset_readers import get_datasets
-from trainer import MTCLSeq2SeqTrainer
-from data.data_utils import DatasetWithTemplate, MTCLWeightedIterableDataset, MTCLWeightedMapDataset
+from trainer import MTCLSeq2SeqTrainer, BatchedMTCLTrainer
+from data.data_utils import (
+    DatasetWithTemplate,
+    MTCLWeightedIterableDataset,
+    MTCLWeightedMapDataset,
+    get_train_val_datasets,
+    get_test_dataset
+)
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -149,35 +154,22 @@ def main():
 
     # Get train/validation datasets
     if training_args.do_train:
-        if training_args.train_strategy == "auxiliary_only":
-            train_dataset = get_datasets(data_args.auxiliary_dataset, split="train",
-                    max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True)
-            validation_dataset = get_datasets(data_args.auxiliary_dataset, split="validation",return_as_dict=False)
-
-        elif training_args.train_strategy == "auxiliary_and_target":
-            train_dataset = get_datasets(data_args.auxiliary_dataset, split="train",
-                    max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True)
-            train_dataset.update(get_datasets(data_args.target_dataset, split="train",
-                                target_dataset_args=target_dataset_args, return_as_dict=True))
-            validation_dataset = get_datasets(data_args.target_dataset, split="validation",
-                                target_dataset_args=target_dataset_args, return_as_dict=False)
-        else:
-            train_dataset = get_datasets(data_args.target_dataset, split="train",
-                                target_dataset_args=target_dataset_args, return_as_dict=False)
-            validation_dataset = get_datasets(data_args.target_dataset, split="validation",
-                                target_dataset_args=target_dataset_args, return_as_dict=False)
-
+        training_datasets = get_train_val_datasets(training_args, target_dataset_args, data_args)
+        train_dataset = training_datasets[0]
+        validation_dataset = training_datasets[1]
         log_dataset_info("train",train_dataset)
         log_dataset_info("validation", validation_dataset)
+        # check if doing gradient directed updates
+        if len(training_datasets) == 3:
+            target_dataset = training_datasets[2]
+            log_dataset_info("gradient direction", target_dataset)
 
     # Get Evaluation/Prediction Datasets
     if training_args.do_eval:
-        test_dataset = get_datasets(data_args.target_dataset, split="test", 
-                    target_dataset_args=target_dataset_args, return_as_dict=False)
+        test_dataset = get_test_dataset(target_dataset_args, data_args)
         log_dataset_info("evaluation", test_dataset)
     if training_args.do_predict:
-        predict_dataset = get_datasets(data_args.target_dataset, split="test",
-                    target_dataset_args=target_dataset_args, return_as_dict=False)
+        predict_dataset = get_test_dataset(target_dataset_args, data_args)
         log_dataset_info("prediction", predict_dataset)
 
     # Load pretrained model and tokenizer
@@ -230,6 +222,7 @@ def main():
             # If calculating per-batch gradients, use Map dataset
             else:
                 train_dataset = MTCLWeightedMapDataset(train_dataset, weights)
+                target_dataset = DatasetWithTemplate(target_dataset, tokenizer, include_answer_choices=False)
 
         elif isinstance(train_dataset, Dataset):
             train_dataset = DatasetWithTemplate(train_dataset, tokenizer, include_answer_choices=False)
@@ -273,15 +266,28 @@ def main():
         return result
 
     # Initialize our Trainer
-    trainer = MTCLSeq2SeqTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=validation_dataset if training_args.do_eval else None,
-        tokenizer=tokenizer,
-        compute_metrics=compute_metrics if training_args.predict_with_generate else None,
-        callbacks= [EarlyStoppingCallback(early_stopping_patience=training_args.patience)] if training_args.patience else None
-    )
+    if training_args.gradient_directed and training_args.mtcl_strategy == "batched":
+        trainer = BatchedMTCLTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset if training_args.do_train else None,
+            eval_dataset=validation_dataset if training_args.do_eval else None,
+            target_dataset=target_dataset if training_args.gradient_directed else None,
+            tokenizer=tokenizer,
+            compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+            callbacks= [EarlyStoppingCallback(early_stopping_patience=training_args.patience)] if training_args.patience else None,
+            similarity_beta=training_args.similarity_beta
+        )
+    else:
+        trainer = MTCLSeq2SeqTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset if training_args.do_train else None,
+            eval_dataset=validation_dataset if training_args.do_eval else None,
+            tokenizer=tokenizer,
+            compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+            callbacks= [EarlyStoppingCallback(early_stopping_patience=training_args.patience)] if training_args.patience else None
+        )
 
     # Training
     if training_args.do_train:
@@ -341,12 +347,6 @@ def main():
                 with open(output_prediction_file, "w") as writer:
                     writer.write("\n".join(predictions))
     return results
-
-
-def _mp_fn(index):
-    # For xla_spawn (TPUs)
-    main()
-
 
 if __name__ == "__main__":
     main()

@@ -8,13 +8,40 @@ import torch.distributed as dist
 from torch.utils.data.sampler import BatchSampler, RandomSampler
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils import PaddingStrategy
+from .dataset_readers import get_datasets
 
-def get_dataset_name(name: str, subset: str):
-    if subset is not None:
-        canonized_name = f"{name}/{subset}"
+def get_train_val_datasets(training_args, target_dataset_args, data_args):
+    if training_args.train_strategy == "auxiliary_only":
+        train_dataset = get_datasets(data_args.auxiliary_dataset, split="train",
+                max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True)
+        validation_dataset = get_datasets(data_args.auxiliary_dataset, split="validation",return_as_dict=False)
+
+    elif training_args.train_strategy == "auxiliary_and_target":
+        train_dataset = get_datasets(data_args.auxiliary_dataset, split="train",
+                max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True)
+        validation_dataset = get_datasets(data_args.target_dataset, split="validation",
+                            target_dataset_args=target_dataset_args, return_as_dict=False)
+        if training_args.gradient_directed:
+            target_dataset = get_datasets(data_args.target_dataset, split="train",
+                                target_dataset_args=target_dataset_args, return_as_dict=False)
+        else:
+            target_dataset = get_datasets(data_args.target_dataset, split="train",
+                                target_dataset_args=target_dataset_args, return_as_dict=True)
+            train_dataset.update(target_dataset)
+
     else:
-        canonized_name = name
-    return canonized_name
+        train_dataset = get_datasets(data_args.target_dataset, split="train",
+                            target_dataset_args=target_dataset_args, return_as_dict=False)
+        validation_dataset = get_datasets(data_args.target_dataset, split="validation",
+                            target_dataset_args=target_dataset_args, return_as_dict=False)
+
+    if training_args.gradient_directed:
+        return train_dataset, validation_dataset, target_dataset
+    return train_dataset, validation_dataset
+
+def get_test_dataset(target_dataset_args, data_args):
+    return get_datasets(data_args.target_dataset, split="test",
+        target_dataset_args=target_dataset_args, return_as_dict=False)
 
 class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
     """
@@ -29,6 +56,7 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
         self.index_map = np.arange(len(dataset))
         self.start = None
         self.end = None
+        self.dataset_name = dataset.name
 
     def __len__(self):
         if self.start is not None and self.end is not None:
@@ -139,6 +167,7 @@ class MTCLWeightedMapDataset(torch.utils.data.dataset.ConcatDataset):
     """Simple wrapper for a concatenated dataset"""
     def __init__(self,datasets, weights=None):
         super(MTCLWeightedMapDataset, self).__init__(datasets.values())
+        self.dataset_names = list(datasets.keys())
 
 class MTCLBatchSampler(torch.utils.data.BatchSampler):
     """
