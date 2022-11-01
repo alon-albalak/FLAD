@@ -1015,7 +1015,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             self,
             model: nn.Module,
             inputs: Dict[str, Union[torch.Tensor, Any]],
-            batch_dataset: str,
+            batch_dataset: Optional[str] = None,
             scale_by_similarities: Optional[bool] = False,
             return_grads: Optional[bool] = False
         ) -> torch.Tensor:
@@ -1176,7 +1176,8 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             grad = []
             for name, param in model.named_parameters():
                 # print(name)
-                if "weight" in name:
+                if self.args.similarity_strategy in name:
+                    # if "weight" in name:
                     grad.append(param.grad.detach())
             grad = torch.concat([g.flatten() for g in grad])
         model.zero_grad()
@@ -1493,6 +1494,18 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     steps_in_epoch <= args.gradient_accumulation_steps
                     and (step + 1) == steps_in_epoch
                 ):
+                    
+                    # Always train on full training set before gradient update
+                    for step, inputs in enumerate(target_dataloader):
+                        tr_loss_step = self.training_step(
+                                                    model,
+                                                    inputs,
+                                                    batch_dataset,
+                                                    scale_by_similarities=False,
+                                                    return_grads=False
+                                                    )
+                        tr_loss += tr_loss_step
+
                     # Gradient clipping
                     if args.max_grad_norm is not None and args.max_grad_norm > 0 and not self.deepspeed:
                         # deepspeed does its own clipping
@@ -1550,7 +1563,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset)
 
                     self._calculate_target_grad(model, target_dataloader)
-                    self._update_grad_similarity()                
+                    self._update_grad_similarity()
                     self._clear_grads()
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
