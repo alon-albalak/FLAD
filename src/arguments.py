@@ -45,6 +45,13 @@ class TrainStrategy(ExplicitEnum):
     AUX_AND_TARGET = "auxiliary_and_target"
     TARGET_ONLY = "target_only"
 
+
+class SimilarityStrategy(ExplicitEnum):
+    ALL_WEIGHTS = "weight"
+    ENCODER = "encoder"
+    DECODER = "decoder"
+    LM_HEAD = "lm_head"
+
 @dataclass
 class ModelArguments:
     """
@@ -1994,6 +2001,13 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
         metadata={
             "help": "If <1 then gradient similarity updates will be an exponential moving average"
         }
+    )
+    similarity_strategy: Optional[Union[SimilarityStrategy, str]] = field(
+      default="weight",
+      metadata={
+          "help": "Determines which weights to use for similarity calculation"
+                  " Options are: weight, encoder, decoder, lm_head"
+      }
     )
 
     def __post_init__(self):
