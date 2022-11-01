@@ -224,7 +224,7 @@ class TargetDatasetArguments:
         }
     )
     change_hswag_templates: Optional[bool] = field(
-        default=False
+        default=True
     )
     raft_cross_validation: Optional[bool] = field(
         default=True
