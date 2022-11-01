@@ -96,8 +96,20 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
         return self.dataset.name, input_ids, target_ids
 
     def get_item_w_answer_choices(self, sample):
-        template = np.random.choice(self.dataset.templates)
-        input_str, target_str = template.apply(sample)
+        template_checks=0
+        target_str=None
+        # cycle through templates until we get one that works
+        while target_str is None and template_checks < 10:
+            # some samples fail ungracefully for specific templates
+            template = np.random.choice(self.dataset.templates)
+            try:
+                input_str, target_str = template.apply(sample)
+            except ValueError:
+                template_checks += 1
+                continue
+        if template_checks == 10:
+            raise ValueError(f"Cannot find appropriate templates for sample: {sample}")
+
         answer_choices = template.get_answer_choices_list(sample)
         if isinstance(input_str, list):
             input_ids = torch.cat(
