@@ -1074,7 +1074,8 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                 grads = []
                 for name, param in model.named_parameters():
                     # print(name)
-                    if "weight" in name:
+                    if self.args.similarity_strategy in name:
+                        # if "weight" in name:
                         grads.append(param.grad.detach())
                 grads = torch.concat([g.flatten() for g in grads])
             return loss.detach(), grads
