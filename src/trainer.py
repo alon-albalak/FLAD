@@ -1496,16 +1496,17 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     and (step + 1) == steps_in_epoch
                 ):
                     
-                    # Always train on full training set before gradient update
-                    for step, inputs in enumerate(target_dataloader):
-                        tr_loss_step = self.training_step(
-                                                    model,
-                                                    inputs,
-                                                    batch_dataset,
-                                                    scale_by_similarities=False,
-                                                    return_grads=False
-                                                    )
-                        tr_loss += tr_loss_step
+                    if (step + 1) % args.target_training_frequency == 0:
+                        # Always train on full training set before gradient update
+                        for step, inputs in enumerate(target_dataloader):
+                            tr_loss_step = self.training_step(
+                                                        model,
+                                                        inputs,
+                                                        batch_dataset,
+                                                        scale_by_similarities=False,
+                                                        return_grads=False
+                                                        )
+                            tr_loss += tr_loss_step
 
                     # Gradient clipping
                     if args.max_grad_norm is not None and args.max_grad_norm > 0 and not self.deepspeed:

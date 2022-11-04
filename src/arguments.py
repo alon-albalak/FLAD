@@ -2009,6 +2009,12 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
                   " Options are: weight, encoder, decoder, lm_head"
       }
     )
+    target_training_frequency: Optional[int] = field(
+        default=1,
+        metadata={
+            "help": "Frequency of gradient updates to train on the target task. By default train on the target task before every gradient update."
+        }
+    )
 
     def __post_init__(self):
         if not any([self.do_train, self.do_eval, self.do_predict]):
