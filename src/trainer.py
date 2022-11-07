@@ -51,7 +51,12 @@ from transformers.pytorch_utils import is_torch_less_than_1_11
 if is_datasets_available():
     import datasets
 
-from data.data_utils import MTCLBatchSampler, MTCLDataCollator, MTCLDistributedBatchSampler
+from data.data_utils import (
+    MTCLBatchSampler,
+    MTCLDataCollator,
+    MTCLDistributedBatchSampler,
+    MTCLWeightedBatchSampler
+)
 from arguments import MTCLTrainingArguments
 
 logger = logging.get_logger(__name__)
@@ -169,12 +174,20 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
         else:
             if self.args.gradient_directed and self.args.mtcl_strategy == "batched":
                 if self.args.world_size <= 1:
-                    return MTCLBatchSampler(
-                        self.train_dataset,
-                        batch_size=self.args.train_batch_size,
-                        generator=generator,
-                        drop_last=self.args.dataloader_drop_last
+                    if self.args.weighted_batch_sampling:
+                        return MTCLWeightedBatchSampler(
+                            self.train_dataset,
+                            batch_size=self.args.train_batch_size,
+                            generator=generator,
+                            drop_last=self.args.dataloader_drop_last
                         )
+                    else:
+                        return MTCLBatchSampler(
+                            self.train_dataset,
+                            batch_size=self.args.train_batch_size,
+                            generator=generator,
+                            drop_last=self.args.dataloader_drop_last
+                            )
                 else:
                     return MTCLDistributedBatchSampler(
                         self.train_dataset,
@@ -1460,7 +1473,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                                                     model,
                                                     inputs,
                                                     batch_dataset,
-                                                    scale_by_similarities=True,
+                                                    scale_by_similarities=self.args.loss_scaling,
                                                     return_grads=True
                                                     )
                 else:
@@ -1468,7 +1481,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                                                 model,
                                                 inputs,
                                                 batch_dataset,
-                                                scale_by_similarities=True,
+                                                scale_by_similarities=self.args.loss_scaling,
                                                 return_grads=True
                                                 )
 
@@ -1567,6 +1580,9 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     self._calculate_target_grad(model, target_dataloader)
                     self._update_grad_similarity()
                     self._clear_grads()
+                    if self.args.weighted_batch_sampling:
+                        weights = list(self._similarities.values())
+                        train_dataloader.batch_sampler.update_weights_and_distribution(weights)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 

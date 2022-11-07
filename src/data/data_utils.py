@@ -177,9 +177,10 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
 
 class MTCLWeightedMapDataset(torch.utils.data.dataset.ConcatDataset):
     """Simple wrapper for a concatenated dataset"""
-    def __init__(self,datasets, weights=None):
+    def __init__(self,datasets, weights: Optional[List[float]] = None):
         super(MTCLWeightedMapDataset, self).__init__(datasets.values())
         self.dataset_names = list(datasets.keys())
+        self.weights = weights
 
 class MTCLBatchSampler(torch.utils.data.BatchSampler):
     """
@@ -198,43 +199,35 @@ class MTCLBatchSampler(torch.utils.data.BatchSampler):
         self.generator=generator
         self.drop_last=drop_last
         self.epoch=0
-        self._tasks, self._task_idxs = [], {}
-        if isinstance(dataset, torch.utils.data.dataset.ConcatDataset):
-            cur_idx = 0
-            for size, d in zip(dataset.cumulative_sizes, dataset.datasets):
+        self._datasets, self._dataset_idxs = [], {}
+        assert(isinstance(dataset, torch.utils.data.dataset.ConcatDataset))
+        cur_idx = 0
+        for size, d in zip(dataset.cumulative_sizes, dataset.datasets):
 
-                # if using batch sampler in distributed setting
-                #   need to use different offsets and artificially set dataset size
-                if isinstance(d, torch.utils.data.dataset.Subset):
-                    dataset_name = d.dataset.dataset.name
-                    self._task_idxs[dataset_name] = [idx+cur_idx for idx in d.indices]
-                    size = cur_idx+len(d.dataset)
-                else:
-                    dataset_name = d.dataset.name
-                    self._task_idxs[dataset_name] = [idx for idx in range(cur_idx,size)]
-                self._tasks.append(dataset_name)
-                cur_idx = size
-        else:
-            for i, datum in enumerate(tqdm(dataset, desc="Dataset Sampler Initialization")):
-                dataset_name = datum[0]
-                assert(isinstance(dataset_name, str))
-                if dataset_name not in self._task_idxs.keys():
-                    self._tasks.append(dataset_name)
-                    self._task_idxs[dataset_name] = []
-                self._task_idxs[dataset_name].append(i)
+            # if using batch sampler in distributed setting
+            #   need to use different offsets and artificially set dataset size
+            if isinstance(d, torch.utils.data.dataset.Subset):
+                dataset_name = d.dataset.dataset.name
+                self._dataset_idxs[dataset_name] = [idx+cur_idx for idx in d.indices]
+                size = cur_idx+len(d.dataset)
+            else:
+                dataset_name = d.dataset.name
+                self._dataset_idxs[dataset_name] = [idx for idx in range(cur_idx,size)]
+            self._datasets.append(dataset_name)
+            cur_idx = size
 
         self._reset(generator)
-        self.num_batches = len(self._batch_tasks)
+        self.num_batches = len(self._batch_datasets)
 
     def _reset(self, generator):
-        # Use built-in torch samplers to randomize and batch data from each task
-        self._samplers = {task: BatchSampler(RandomSampler(self._task_idxs[task], generator=generator), \
+        # Use built-in torch samplers to randomize and batch data from each dataset
+        self._samplers = {dataset: BatchSampler(RandomSampler(self._dataset_idxs[dataset], generator=generator), \
                 batch_size=self.batch_size, drop_last=self.drop_last)\
-            for task in self._tasks}
-        # super complicated way to make a flattened list of task names corresponding to batches
-        self._batch_tasks = [thing for l in [[task]*len(sampler) for task,sampler in self._samplers.items()] for thing in l]
+            for dataset in self._datasets}
+        # super complicated way to make a flattened list of dataset names corresponding to batches
+        self._batch_datasets = [thing for l in [[dataset]*len(sampler) for dataset,sampler in self._samplers.items()] for thing in l]
         # convert samplers into iterables
-        self._samplers = {task: iter(sampler) for task, sampler in self._samplers.items()}
+        self._samplers = {dataset: iter(sampler) for dataset, sampler in self._samplers.items()}
 
     def __iter__(self) -> Iterator[int]:
         if self.generator is None:
@@ -248,9 +241,9 @@ class MTCLBatchSampler(torch.utils.data.BatchSampler):
         # print(f"BATCH IDXS: {batch_idxs}")
 
         for idx in batch_idxs:
-            batch_task = self._batch_tasks[idx]
-            task_indices = next(self._samplers[batch_task])
-            dataset_indices = [self._task_idxs[batch_task][task_idx] for task_idx in task_indices]
+            batch_dataset = self._batch_datasets[idx]
+            dataset_indices = next(self._samplers[batch_dataset])
+            dataset_indices = [self._dataset_idxs[batch_dataset][dataset_idx] for dataset_idx in dataset_indices]
             # print(f"Dataset idx: {dataset_indices}")
             yield dataset_indices
         self._reset(generator)
@@ -260,6 +253,124 @@ class MTCLBatchSampler(torch.utils.data.BatchSampler):
 
     def set_epoch(self, epoch: int) -> None:
         self.epoch=epoch
+
+class MTCLWeightedBatchSampler(MTCLBatchSampler):
+    """
+    Class used to group DatasetWithTemplate samples into batches.
+    Individual batches will be entirely made up of samples from only 1 dataset
+    """
+    def __init__(
+        self,
+        dataset: torch.utils.data.dataset.Dataset,
+        batch_size: int,
+        generator: Optional[torch.Generator] = None,
+        drop_last: bool = False,
+
+        ) -> None:
+
+        self.batch_size=batch_size
+        self.generator=generator
+        self.drop_last=drop_last
+        self._datasets, self._dataset_idxs = [], {}
+        assert(isinstance(dataset, torch.utils.data.dataset.ConcatDataset))
+        cur_idx = 0
+        for size, d in zip(dataset.cumulative_sizes, dataset.datasets):
+            # TODO - ALON: if needed to work with multiple workers, split up idxs here by worker number
+
+            # if using batch sampler in distributed setting
+            #   need to use different offsets and artificially set dataset size
+            if isinstance(d, torch.utils.data.dataset.Subset):
+                dataset_name = d.dataset.dataset.name
+                self._dataset_idxs[dataset_name] = [idx+cur_idx for idx in d.indices]
+                size = cur_idx+len(d.dataset)
+            else:
+                dataset_name = d.dataset.name
+                self._dataset_idxs[dataset_name] = [idx for idx in range(cur_idx,size)]
+            self._datasets.append(dataset_name)
+            cur_idx = size
+
+        self.epochs={dataset_name: 0 for dataset_name in self._datasets}
+
+        self._reset(generator)
+        self.num_batches = len(self._batch_datasets)
+
+        self.weights = dataset.weights
+        self.update_distribution()
+
+    def _reset(self, generator):
+        # Use built-in torch samplers to randomize and batch data from each dataset
+        self._samplers = {dataset: BatchSampler(RandomSampler(self._dataset_idxs[dataset], generator=generator), \
+                batch_size=self.batch_size, drop_last=self.drop_last)\
+            for dataset in self._datasets}
+        # super complicated way to make a flattened list of dataset names corresponding to batches
+        self._batch_datasets = [thing for l in [[dataset]*len(sampler) for dataset,sampler in self._samplers.items()] for thing in l]
+        # convert samplers into iterables
+        self._samplers = {dataset: iter(sampler) for dataset, sampler in self._samplers.items()}
+
+    def _reset_single(self, generator, dataset):
+        sampler = BatchSampler(RandomSampler(self._dataset_idxs[dataset], generator=generator), \
+                    batch_size=self.batch_size, drop_last=self.drop_last)
+        self._samplers[dataset] = iter(sampler)
+
+    @property
+    def weights(self) -> torch.Tensor:
+        return self._weights
+
+    @weights.setter
+    def weights(self, weights) -> torch.Tensor:
+        if isinstance(weights, list):
+            self._weights = torch.nn.functional.softmax(torch.tensor(weights))
+        elif isinstance(weights, torch.Tensor):
+            self._weights = torch.nn.functional.softmax(weights)
+        elif weights is None:
+            self._weights = torch.tensor([1/len(self._datasets) for _ in self._datasets])
+        else:
+            raise TypeError("weights must be a list or Tensor")
+
+    @property
+    def distribution(self) -> torch.distributions.distribution.Distribution:
+        return self._distribution
+
+    @distribution.setter
+    def distribution(self, dist):
+        self._distribution = dist
+
+    def update_distribution(self):
+        assert(self.weights is not None)
+        self.distribution = torch.distributions.categorical.Categorical(probs=self.weights)
+
+    def update_weights_and_distribution(self, weights):
+        self.weights = weights
+        self.update_distribution()
+
+    def _infinite_iterator(self):
+        while True:
+            batch_dataset = self._datasets[self.distribution.sample()]
+            try:
+                dataset_indices = next(self._samplers[batch_dataset])
+            except:
+                self.iterate_epoch(batch_dataset)
+                generator = torch.Generator()
+                generator.manual_seed(self.generator.seed() + self.epochs[batch_dataset])
+                self._reset_single(generator, batch_dataset)
+                dataset_indices = next(self._samplers[batch_dataset])
+
+            dataset_indices = [self._dataset_idxs[batch_dataset][dataset_idx] for dataset_idx in dataset_indices]
+            # print(f"Dataset: {batch_dataset} Idx: {dataset_indices}")
+            yield dataset_indices
+
+    def __iter__(self) -> Iterator[int]:
+        return self._infinite_iterator()
+
+    def __len__(self) -> int:
+        return self.num_batches
+
+    def set_epoch(self, epoch: int, dataset_name: str) -> None:
+        self.epochs[dataset_name]=epoch
+
+    def iterate_epoch(self, dataset_name: str) -> None:
+        self.epochs[dataset_name] += 1
+
 
 class MTCLDistributedBatchSampler(
     torch.utils.data.distributed.DistributedSampler,

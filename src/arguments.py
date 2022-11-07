@@ -1971,6 +1971,18 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
             "help": "Options are 'batched' or 'samples'"
         }
     )
+    loss_scaling: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Flag for scaling the loss according to gradient similarity"
+        }
+    )
+    weighted_batch_sampling: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Flag for weighting the batch sampling according to gradient similarities."
+        }
+    )
     length_norm: Optional[int] = field(
         default=1,
         metadata={
@@ -2025,4 +2037,7 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
             if self.train_strategy != "auxiliary_and_target":
                 raise ValueError("Relative sampling from target dataset is only compatible \
                     when training with --train_strategy=auxiliary_and_target")
+        if self.gradient_directed and self.mtcl_strategy == "batched":
+            if not self.loss_scaling and not self.weighted_batch_sampling:
+                raise ValueError("If using batched gradient directed MTCL, must use loss scaling and/or weighted batch sampling")
         return super().__post_init__()
