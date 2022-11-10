@@ -1510,7 +1510,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                 ):
                     
                     if (step + 1) % args.target_training_frequency == 0:
-                        # Always train on full training set before gradient update
+                        # Train on full training set before gradient update
                         for step, inputs in enumerate(target_dataloader):
                             tr_loss_step = self.training_step(
                                                         model,
@@ -1581,8 +1581,9 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     self._update_grad_similarity()
                     self._clear_grads()
                     if self.args.weighted_batch_sampling:
-                        weights = list(self._similarities.values())
-                        train_dataloader.batch_sampler.update_weights_and_distribution(weights)
+                        weights = torch.tensor(list(self._similarities.values()))
+                        train_dataloader.batch_sampler.update_weights_and_distribution(weights, \
+                                                    threshold=self.args.dataset_similarity_threshold)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 

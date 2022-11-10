@@ -1983,6 +1983,12 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
             "help": "Flag for weighting the batch sampling according to gradient similarities."
         }
     )
+    dataset_similarity_threshold: Optional[float] = field(
+        default=None,
+        metadata={
+            "help": "Similarity threshold (between -1 and 1) under which datasets will no longer be sampled"
+        }
+    )
     length_norm: Optional[int] = field(
         default=1,
         metadata={
@@ -2040,4 +2046,6 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
         if self.gradient_directed and self.mtcl_strategy == "batched":
             if not self.loss_scaling and not self.weighted_batch_sampling:
                 raise ValueError("If using batched gradient directed MTCL, must use loss scaling and/or weighted batch sampling")
+        if self.dataset_similarity_threshold is not None and not self.weighted_batch_sampling:
+            raise ValueError("Dataset similarity threshold has only been implemented for weighted batch sampling")
         return super().__post_init__()

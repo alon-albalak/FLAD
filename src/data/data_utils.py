@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Optional, Any, Union, Dict, List, Iterator
 import math
 import numpy as np
-from tqdm import tqdm
 import torch
 import torch.distributed as dist
 from torch.utils.data.sampler import BatchSampler, RandomSampler
@@ -296,6 +295,7 @@ class MTCLWeightedBatchSampler(MTCLBatchSampler):
 
         self.weights = dataset.weights
         self.update_distribution()
+        self.all_done = False
 
     def _reset(self, generator):
         # Use built-in torch samplers to randomize and batch data from each dataset
@@ -319,9 +319,9 @@ class MTCLWeightedBatchSampler(MTCLBatchSampler):
     @weights.setter
     def weights(self, weights) -> torch.Tensor:
         if isinstance(weights, list):
-            self._weights = torch.nn.functional.softmax(torch.tensor(weights))
+            self._weights = torch.nn.functional.softmax(torch.tensor(weights), dim=0)
         elif isinstance(weights, torch.Tensor):
-            self._weights = torch.nn.functional.softmax(weights)
+            self._weights = torch.nn.functional.softmax(weights, dim=0)
         elif weights is None:
             self._weights = torch.tensor([1/len(self._datasets) for _ in self._datasets])
         else:
@@ -335,20 +335,41 @@ class MTCLWeightedBatchSampler(MTCLBatchSampler):
     def distribution(self, dist):
         self._distribution = dist
 
+    @property
+    def all_done(self) -> bool:
+        return self._all_done
+
+    @all_done.setter
+    def all_done(self, done):
+        self._all_done = done
+
     def update_distribution(self):
         assert(self.weights is not None)
         self.distribution = torch.distributions.categorical.Categorical(probs=self.weights)
 
-    def update_weights_and_distribution(self, weights):
+    def update_weights_and_distribution(self, weights, threshold=None):
+        if threshold:
+            weights = torch.nn.functional.threshold(weights, threshold, float("-Inf"))
+            if not torch.any(weights > float("-Inf")):
+                self.all_done = True
+                return
         self.weights = weights
         self.update_distribution()
 
     def _infinite_iterator(self):
         while True:
+
+            # check for manual exit
+            if self.all_done:
+                break
+
+            # sample a dataset
             batch_dataset = self._datasets[self.distribution.sample()]
+            
             try:
                 dataset_indices = next(self._samplers[batch_dataset])
-            except:
+            except StopIteration:
+                # if no batches left for this dataset, reset
                 self.iterate_epoch(batch_dataset)
                 generator = torch.Generator()
                 generator.manual_seed(self.generator.seed() + self.epochs[batch_dataset])
