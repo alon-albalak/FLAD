@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional, Any, Union, Dict, List, Iterator
+import logging
 import math
 import numpy as np
 import torch
@@ -8,6 +9,8 @@ from torch.utils.data.sampler import BatchSampler, RandomSampler
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils import PaddingStrategy
 from .dataset_readers import get_datasets
+
+logger = logging.getLogger(__name__)
 
 def get_train_val_datasets(training_args, target_dataset_args, data_args):
     if training_args.train_strategy == "auxiliary_only":
@@ -80,6 +83,7 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
             try:
                 input_target_str = template.apply(sample)
             except:
+                logger.warn(f"Could not find suitable template for {self.dataset.name} - {sample['id']}")
                 continue
             if len(input_target_str) == 2:
                 input_str, target_str = input_target_str

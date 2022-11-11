@@ -3,7 +3,7 @@ import json
 import logging
 import numpy as np
 from datasets import load_dataset, load_from_disk, Dataset
-from promptsource.templates import DatasetTemplates
+from promptsource.templates import DatasetTemplates, TemplateCollection
 import pandas as pd
 
 # set logging level to INFO
@@ -11,6 +11,17 @@ logger = logging.getLogger(__name__)
 logger.setLevel(20)
 
 CACHE_DIR=os.getenv("HF_HOME", default=None)
+
+# TESTING NEW DATASETS
+CONFIRMED_DATASETS=[
+    ("acronym_identification",None),
+    ("ade_corpus_v2","Ade_corpus_v2_classification"), # adverse drug reaction
+    ('ade_corpus_v2', 'Ade_corpus_v2_drug_ade_relation'),
+    ('ade_corpus_v2', 'Ade_corpus_v2_drug_dosage_relation'),
+    ('aeslc', None), # generate email title based on body
+
+]
+# END TESTING NEW DATASETS
 
 TOMixture = [
     ("glue","mrpc"), # Paraphrase identification
@@ -135,11 +146,12 @@ def get_datasets(
     assert(split in ['train','validation','test'])
     if dataset_or_mixture_name == "T0Mixture":
         return get_T0MixtureDatasets(split, max_samples, return_as_dict)
+    elif dataset_or_mixture_name == "P3":
+        return get_P3MixtureDatasets(split, max_samples, return_as_dict)
     elif dataset_or_mixture_name in EvalMixture:
         return get_eval_dataset(dataset_or_mixture_name, split, target_dataset_args, return_as_dict)
 
     raise ValueError(f"Unknown dataset or mixture: {dataset_or_mixture_name}")
-    
 
 def get_T0MixtureDatasets(split, max_samples=None, return_as_dict=True):
     """
@@ -159,6 +171,33 @@ def get_T0MixtureDatasets(split, max_samples=None, return_as_dict=True):
         else:
             datasets.append(dataset)
 
+
+        logger.info(f"Loaded dataset {name}/{subset} with {len(templates)} templates")
+        assert(len(templates) > 0), "No templates"
+    return datasets
+
+def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
+    """
+    P3Mixture creates a separate dataset for each dataset in
+        P3 that is NOT in the evaluation mixture
+    """
+    TC = TemplateCollection()
+    datasets = {} if return_as_dict else []
+    for k, v in TC.datasets_templates.items():
+        name, subset = k
+        if name in EvalMixture:
+            continue
+        dataset = load_dataset(name, subset, split=split, cache_dir=CACHE_DIR)
+        if max_samples:
+            dataset = Dataset.from_dict(dataset[:max_samples])
+        templates = [template for id, template in v.templates.items()]
+        dataset.templates = templates
+        dataset.name = get_dataset_name(name, subset)
+
+        if return_as_dict:
+            datasets[get_dataset_name(name, subset)] = dataset
+        else:
+            datasets.append(dataset)
 
         logger.info(f"Loaded dataset {name}/{subset} with {len(templates)} templates")
         assert(len(templates) > 0), "No templates"
