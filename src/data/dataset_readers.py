@@ -184,12 +184,29 @@ def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
     TC = TemplateCollection()
     datasets = {} if return_as_dict else []
     for k, v in TC.datasets_templates.items():
+        tmp_split = split
         name, subset = k
-        if name in EvalMixture:
+        logger.info(f"ALON INFO: ({name},{subset})")
+        if name in EvalMixture+["Zaid/coqa_expanded","anli","asnq"]:
             continue
-        dataset = load_dataset(name, subset, split=split, cache_dir=CACHE_DIR)
+        if k == ("asset", "ratings"):
+            tmp_split="full"
+        if k == ("asset", "simplification"):
+            tmp_split = "validation"
+        if k == ("climate_fever", None):
+            tmp_split = "test"
+        
         if max_samples:
-            dataset = Dataset.from_dict(dataset[:max_samples])
+            try:
+                dataset = load_dataset(name, subset, split=f"{tmp_split}[:{max_samples}]", cache_dir=CACHE_DIR)
+            except:
+                dataset = load_dataset(name, subset, split=tmp_split, cache_dir=CACHE_DIR)
+                dataset = Dataset.from_dict(dataset[:max_samples])
+
+        else:
+            dataset = load_dataset(name, subset, split=tmp_split, cache_dir=CACHE_DIR)
+        # if max_samples:
+        #     dataset = Dataset.from_dict(dataset[:max_samples])
         templates = [template for id, template in v.templates.items()]
         dataset.templates = templates
         dataset.name = get_dataset_name(name, subset)
