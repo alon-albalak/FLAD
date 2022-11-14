@@ -1049,6 +1049,21 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         Return:
             `torch.Tensor`: The tensor with training loss on this batch.
         """
+
+        # gather accumulated gradients
+        if return_grads:
+            with torch.no_grad():
+                prev_grads = {}
+                first_param = True
+                for name, param in model.named_parameters():
+                    if self.args.similarity_strategy in name:
+                        if first_param:
+                            if param.grad is None or torch.sum(param.grad) == 0:
+                                break
+                            else:
+                                first_param = False
+                        prev_grads[name] = param.grad.detach().clone()
+
         model.train()
         inputs = self._prepare_inputs(inputs)
 
@@ -1089,7 +1104,11 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     # print(name)
                     if self.args.similarity_strategy in name:
                         # if "weight" in name:
-                        grads.append(param.grad.detach())
+                        if prev_grads:
+                            p = param.grad.detach() - prev_grads[name]
+                        else:
+                            p = param.grad.detach()
+                        grads.append(p)
                 grads = torch.concat([g.flatten() for g in grads])
             return loss.detach(), grads
 
