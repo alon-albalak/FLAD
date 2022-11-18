@@ -28,6 +28,7 @@ import nltk  # Here to have a nice missing dependency error message early on
 import evaluate
 import transformers
 from filelock import FileLock
+import torch
 from transformers import (
     AutoConfig,
     AutoModelForSeq2SeqLM,
@@ -148,6 +149,9 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
+    # pre-allocate memory
+    tmp_tensor = torch.rand([100000,100000], device=training_args.device)
+
     # TODO - ALON: If needed, implement training with auxiliary data only
     #       Requires changing the evaluation collator, evaluation metric, 
     assert(training_args.train_strategy != "auxiliary_only"), "Validation with auxiliary tasks is not implemented"
@@ -266,6 +270,11 @@ def main():
         preds, labels = eval_preds
         result = metric.compute(predictions=preds, references=labels)
         return result
+
+    # remove pre-allocated memory
+    del tmp_tensor
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     # Initialize our Trainer
     if training_args.gradient_directed and training_args.mtcl_strategy == "batched":
