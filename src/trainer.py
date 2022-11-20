@@ -897,7 +897,7 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
                     self.state.epoch = epoch + (step + 1) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset)
+                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset, step)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -912,7 +912,7 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset)
+            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset, step)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():
@@ -959,7 +959,7 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset):
+    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset, step):
         if self.control.should_log:
 
             logs: Dict[str, float] = {}
@@ -970,6 +970,7 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
+            logs['step'] = step
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
             logs["samples_seen_per_dataset"] = samples_seen_per_dataset
@@ -1594,7 +1595,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     self.state.epoch = epoch + (step + 1) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset)
+                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset, step)
 
                     self._calculate_target_grad(model, target_dataloader)
                     self._update_grad_similarity()
@@ -1617,7 +1618,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset)
+            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset, step)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():
@@ -1664,7 +1665,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset):
+    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset, step):
         if self.control.should_log:
 
             logs: Dict[str, float] = {}
@@ -1675,6 +1676,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
+            logs['step'] = step
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
             logs["samples_seen_per_dataset"] = samples_seen_per_dataset
