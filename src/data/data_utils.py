@@ -83,7 +83,7 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
             try:
                 input_target_str = template.apply(sample)
             except:
-                logger.warn(f"Could not find suitable template for {self.dataset.name} - {sample['id']}")
+                logger.warn(f"Could not find suitable template for {self.dataset.name} - {sample['idx']}")
                 continue
             if len(input_target_str) == 2:
                 input_str, target_str = input_target_str
