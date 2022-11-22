@@ -1255,9 +1255,14 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                                     threshold=self.args.dataset_similarity_threshold)
 
     def _initialize_weights(self, train_dataloader, target_dataloader, model):
+        # Temporarily adjust batch sizes for efficiency
+        batch_scale_factor=2
+        self.args.per_device_train_batch_size = self.args.per_device_train_batch_size * batch_scale_factor
+        self._train_batch_size = self._train_batch_size * batch_scale_factor
+        
         logger.info(f"Initializing weights with {self.args.weight_initialization_samples} samples per dataset")
         target_grad = self._calculate_grad(model, target_dataloader)
-        for name, dataset in self.train_dataset_dict.items():
+        for name, dataset in tqdm(self.train_dataset_dict.items(), desc="Weight Initialization"):
             num_samples = min(self.args.weight_initialization_samples, len(dataset))
             d = torch.utils.data.dataset.Subset(dataset, range(0,num_samples))
             dataloader = self.get_target_dataloader(d)
@@ -1270,6 +1275,9 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         if self.args.weighted_batch_sampling:
             weights = torch.tensor(list(self._similarities.values()))
             self._update_dataloader_weights(train_dataloader, weights)
+        
+        self.args.per_device_train_batch_size = self.args.per_device_train_batch_size / batch_scale_factor
+        self._train_batch_size = self._train_batch_size / batch_scale_factor
 
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
