@@ -1246,6 +1246,10 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     (1-self.similarity_beta)*self._similarities[dataset_name] + \
                         self.similarity_beta*cos_sim
 
+                if (self.args.dataset_similarity_threshold is not None) and \
+                    (self._similarities[dataset_name] < self.args.dataset_similarity_threshold):
+                    self._similarities[dataset_name] = self._similarities[dataset_name] * 0
+
     def _update_dataloader_weights(self, dataloader, weights):
         dataloader.batch_sampler.update_weights_and_distribution(weights, \
                                     threshold=self.args.dataset_similarity_threshold)
