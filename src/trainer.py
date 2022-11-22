@@ -1005,6 +1005,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         args: MTCLTrainingArguments = None,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
+        train_dataset_dict: Optional[Dict] = None,
         eval_dataset: Optional[Dataset] = None,
         target_dataset: Optional[Dataset] = None,
         tokenizer: Optional[PreTrainedTokenizerBase] = None,
@@ -1023,6 +1024,9 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         self.target_dataset = target_dataset
         self.target_name = target_dataset.dataset_name
         self.similarity_beta = similarity_beta
+        self.train_dataset_dict = train_dataset_dict
+        # Initialize gradients and similarities
+        self._initialize_grads_similarities()
 
     def training_step(
             self,
@@ -1114,8 +1118,10 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
 
         return loss.detach()
 
-    def _get_target_sampler(self) -> Optional[torch.utils.data.Sampler]:
-        if self.target_dataset is None or not has_length(self.target_dataset):
+    def _get_target_sampler(self, target_dataset=None) -> Optional[torch.utils.data.Sampler]:
+        target_dataset = target_dataset if target_dataset else self.target_dataset
+        
+        if target_dataset is None or not has_length(target_dataset):
             return None
 
         generator = None
@@ -1134,20 +1140,20 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
 
         # Build the sampler.
         if self.args.world_size <= 1:
-            return RandomSampler(self.target_dataset, generator=generator)
+            return RandomSampler(target_dataset, generator=generator)
         else:
             return DistributedSampler(
-                self.target_dataset,
+                target_dataset,
                 num_replicas=self.args.world_size,
                 rank=self.args.process_index,
                 seed=seed,
             )
 
-    def get_target_dataloader(self) -> DataLoader:
-        if self.target_dataset is None:
+    def get_target_dataloader(self, target_dataset = None) -> DataLoader:
+        target_dataset = target_dataset if target_dataset else self.target_dataset
+        
+        if target_dataset is None:
             raise ValueError("Trainer: Gradient directed training requires a target_dataset.")
-
-        target_dataset = self.target_dataset
         
         # ALON: Get custom collate_fn
         data_collator = MTCLDataCollator(
@@ -1180,7 +1186,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                 pin_memory=self.args.dataloader_pin_memory,
             )
 
-        target_sampler = self._get_target_sampler()
+        target_sampler = self._get_target_sampler(target_dataset)
 
         return DataLoader(
             target_dataset,
@@ -1193,7 +1199,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             worker_init_fn=seed_worker,
         )
 
-    def _calculate_target_grad(self, model, dataloader):
+    def _calculate_grad(self, model, dataloader):
         # iterate through dataloader and accumulate gradients over all samples
         # return the gradient
         grad = None
@@ -1214,7 +1220,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     grad.append(param.grad.detach())
             grad = torch.concat([g.flatten() for g in grad])
         model.zero_grad()
-        self._target_grad = grad
+        return grad
 
     def _update_grad(self, task_name, grad):
         if self._gradients[task_name] is None:
@@ -1230,14 +1236,35 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         self._gradients = {name: None for name in self.auxiliary_dataset_names}
         self._similarities = {name: torch.tensor(1, dtype=torch.float) for name in self.auxiliary_dataset_names}
 
-    def _update_grad_similarity(self):
+    def _update_grad_similarity(self, target_grad):
         # calculate cosine similarity between grads and target
         for dataset_name in self.auxiliary_dataset_names:
             if self._gradients[dataset_name] is not None:
-                cos_sim = torch.nn.functional.cosine_similarity(self._target_grad, self._gradients[dataset_name], dim=0)
+                cos_sim = torch.nn.functional.cosine_similarity(target_grad, self._gradients[dataset_name], dim=0)
                 self._similarities[dataset_name] = \
                     (1-self.similarity_beta)*self._similarities[dataset_name] + \
                         self.similarity_beta*cos_sim
+
+    def _update_dataloader_weights(self, dataloader, weights):
+        dataloader.batch_sampler.update_weights_and_distribution(weights, \
+                                    threshold=self.args.dataset_similarity_threshold)
+
+    def _initialize_weights(self, train_dataloader, target_dataloader, model):
+        logger.info(f"Initializing weights with {self.args.weight_initialization_samples} samples per dataset")
+        target_grad = self._calculate_grad(model, target_dataloader)
+        for name, dataset in self.train_dataset_dict.items():
+            num_samples = min(self.args.weight_initialization_samples, len(dataset))
+            d = torch.utils.data.dataset.Subset(dataset, range(0,num_samples))
+            dataloader = self.get_target_dataloader(d)
+
+            grad = self._calculate_grad(model, dataloader)
+            cos_sim = torch.nn.functional.cosine_similarity(target_grad, grad, dim=0)
+            logger.info(f"Initial similarity for {name}: {cos_sim.detach().clone().item()}")
+            self._similarities[name] = cos_sim.detach().clone()
+
+        if self.args.weighted_batch_sampling:
+            weights = torch.tensor(list(self._similarities.values()))
+            self._update_dataloader_weights(train_dataloader, weights)
 
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
@@ -1245,7 +1272,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         self._train_batch_size = batch_size
         # Data loader and number of training steps
         train_dataloader = self.get_train_dataloader()
-        target_dataloader = self.get_target_dataloader()
+        target_dataloader = self.get_target_dataloader(self.target_dataset)
 
         # Setting up training control variables:
         # number of training epochs: num_train_epochs
@@ -1344,6 +1371,10 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         # self.model         is the Transformers Model
         # self.model_wrapped is DDP(Transformers Model), Deepspeed(Transformers Model), etc.
 
+        # Initialize weights if needed
+        if self.args.weight_initialization_samples > 0:
+            self._initialize_weights(train_dataloader, target_dataloader, model)
+
         # Train!
         logger.info("***** Running training *****")
         logger.info(f"  Num examples = {num_examples}")
@@ -1426,9 +1457,6 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     # Otherwise we need to call the whooooole sampler cause there is some random operation added
                     # AT THE VERY END!
                     _ = list(train_dataloader.sampler)
-
-        # Initialize gradients and similarities
-        self._initialize_grads_similarities()
 
         for epoch in range(epochs_trained, num_train_epochs):            
             if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
@@ -1596,13 +1624,12 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
 
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset)
 
-                    self._calculate_target_grad(model, target_dataloader)
-                    self._update_grad_similarity()
+                    target_grad = self._calculate_grad(model, target_dataloader)
+                    self._update_grad_similarity(target_grad)
                     self._clear_grads()
                     if self.args.weighted_batch_sampling:
                         weights = torch.tensor(list(self._similarities.values()))
-                        train_dataloader.batch_sampler.update_weights_and_distribution(weights, \
-                                                    threshold=self.args.dataset_similarity_threshold)
+                        self._update_dataloader_weights(train_dataloader, weights)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 

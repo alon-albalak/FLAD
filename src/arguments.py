@@ -1983,6 +1983,13 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
             "help": "Flag for weighting the batch sampling according to gradient similarities."
         }
     )
+    weight_initialization_samples: Optional[int] = field(
+        default=0,
+        metadata={
+            "help": "Number of samples from each auxiliary dataset to use when initializing weights. \
+                Defaults to uniform weight distribution when 0."
+        }
+    )
     dataset_similarity_threshold: Optional[float] = field(
         default=None,
         metadata={
