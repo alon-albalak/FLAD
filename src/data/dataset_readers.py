@@ -86,6 +86,47 @@ T0ppMixture = [ # T0pp datasets in addition to T0Mixture and T0p datasets
     ("super_glue","wic"), # Word Sense Disambiguation
 ]
 
+P3Mixture_split_map={
+    # Validation
+    ("asset", "simplification"): "validation",
+    ("fever","v2.0"): "validation",
+    ("jfleg", None): "validation",
+    ("glue","mnli_matched"): "validation",
+    ("glue","mnli_mismatched"): "validation",
+    ('mc_taco', None): "validation",
+    ('squad_adversarial', 'AddSent'): "validation",
+    ('turk', None): "validation",
+    ('wino_bias', 'type1_anti'): "validation",
+    ('wino_bias', 'type1_pro'): "validation",
+    ('wino_bias', 'type2_anti'): "validation",
+    ('wino_bias', 'type2_pro'): "validation",
+    ('xquad', 'xquad.en'): "validation",
+    ('xquad_r', 'en'): "validation",
+    # Test
+    ("climate_fever", None): "test",
+    ("craffel/openai_lambada",None): "test",
+    ("crows_pairs",None): "test",
+    ("glue","ax"): "test",
+    ('openai_humaneval', None): "test",
+    ('squadshifts', 'amazon'): "test",
+    ('squadshifts', 'new_wiki'): "test",
+    ('squadshifts', 'nyt'): "test",
+    ('super_glue', 'axb'): "test",
+    ('super_glue', 'axg'): "test",
+    ('winograd_wsc', 'wsc273'): "test",
+    ('winograd_wsc', 'wsc285'): "test",
+    # Other
+    ("asset", "ratings"): "full",
+    ("docred", None): "train_annotated",
+}
+
+P3SkippedDatasets=[
+    ('Zaid/coqa_expanded', None),
+    ('jigsaw_unintended_bias', None), # requires manual download
+    ('asnq', None), # download is broken
+    ("coqa", None), # temporarily not working
+]
+
 EvalMixture = [
     "rte",
     "h-swag",
@@ -98,6 +139,18 @@ EvalMixture = [
     "anli-r2",
     "anli-r3",
     "wsc"
+]
+
+EvalMixtureFullNames=[
+    ("super_glue", "rte"),
+    ("hellaswag",None),
+    ("super_glue", "copa"),
+    ("super_glue", "wic"),
+    ("winogrande", "winogrande_xl"),
+    ("super_glue", "cb"),
+    ("story_cloze", "2016"),
+    ("anli",None),
+    ("super_glue", "wsc.fixed"),
 ]
 
 TEST_SET_SPLITS = {
@@ -187,19 +240,23 @@ def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
         tmp_split = split
         name, subset = k
         logger.info(f"ALON INFO: ({name},{subset})")
-        if name in EvalMixture+["Zaid/coqa_expanded","anli","asnq"]:
+
+        # Skip evaluation datasets
+        if (name in EvalMixture) or k in EvalMixtureFullNames:
             continue
-        if k == ("asset", "ratings"):
-            tmp_split="full"
-        if k == ("asset", "simplification"):
-            tmp_split = "validation"
-        if k == ("climate_fever", None):
-            tmp_split = "test"
         
+        # Skip some datasets for various reasons
+        if k in P3SkippedDatasets:
+            continue
+
+        if k in P3Mixture_split_map:
+            tmp_split = P3Mixture_split_map[k]
+
         if max_samples:
             try:
                 dataset = load_dataset(name, subset, split=f"{tmp_split}[:{max_samples}]", cache_dir=CACHE_DIR)
             except:
+                logger.warn(f"ALON WARN: failed to load max samples of {k}. Loading full dataset.")
                 dataset = load_dataset(name, subset, split=tmp_split, cache_dir=CACHE_DIR)
                 dataset = Dataset.from_dict(dataset[:max_samples])
 

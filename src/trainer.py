@@ -970,6 +970,7 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
+            logs['step'] = self.state.global_step
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
             logs["samples_seen_per_dataset"] = samples_seen_per_dataset
@@ -1702,6 +1703,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
+            logs['step'] = self.state.global_step
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
             logs["samples_seen_per_dataset"] = samples_seen_per_dataset
