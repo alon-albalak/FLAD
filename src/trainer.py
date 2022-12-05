@@ -1279,6 +1279,8 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         self.args.per_device_train_batch_size = self.args.per_device_train_batch_size / batch_scale_factor
         self._train_batch_size = self._train_batch_size / batch_scale_factor
 
+        logger.info(f"Initial similarities: {self._similarities}")
+
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
@@ -1687,7 +1689,10 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
 
         # add remaining tr_loss
         self._total_loss_scalar += tr_loss.item()
-        train_loss = self._total_loss_scalar / self.state.global_step
+        if self.state.global_step > 0:
+            train_loss = self._total_loss_scalar / self.state.global_step
+        else:
+            train_loss = 0.0
 
         metrics = speed_metrics("train", start_time, num_samples=num_train_samples, num_steps=self.state.max_steps)
         self.store_flos()
