@@ -57,7 +57,7 @@ from data.data_utils import (
     MTCLDistributedBatchSampler,
     MTCLWeightedBatchSampler
 )
-from arguments import MTCLTrainingArguments
+from arguments import MTCLTrainingArguments, DataTrainingArguments
 
 logger = logging.get_logger(__name__)
 
@@ -1016,6 +1016,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = None,
         similarity_beta: Optional[float] = 1,
+        data_args: DataTrainingArguments = None,
     ):
         super().__init__(
             model,args, data_collator,train_dataset,eval_dataset,
@@ -1026,6 +1027,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         self.target_name = target_dataset.dataset_name
         self.similarity_beta = similarity_beta
         self.train_dataset_dict = train_dataset_dict
+        self.data_args = data_args
         # Initialize gradients and similarities
         self._initialize_grads_similarities()
 
@@ -1260,17 +1262,35 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         self.args.per_device_train_batch_size = self.args.per_device_train_batch_size * batch_scale_factor
         self._train_batch_size = self._train_batch_size * batch_scale_factor
         
-        logger.info(f"Initializing weights with {self.args.weight_initialization_samples} samples per dataset")
-        target_grad = self._calculate_grad(model, target_dataloader)
-        for name, dataset in tqdm(self.train_dataset_dict.items(), desc="Weight Initialization"):
-            num_samples = min(self.args.weight_initialization_samples, len(dataset))
-            d = torch.utils.data.dataset.Subset(dataset, range(0,num_samples))
-            dataloader = self.get_target_dataloader(d)
+        model_name = model.name_or_path.replace("/","-")
+        weight_save_path = os.path.join(os.path.dirname(__file__),"initial_similarities")
+        if not os.path.exists(weight_save_path):
+            os.makedirs(weight_save_path)
+        weight_save_file = os.path.join(weight_save_path,
+            f"{self.args.weight_initialization_samples}_{self.data_args.target_dataset}_"
+            f"{self.data_args.auxiliary_dataset}_{model_name}_{self.args.seed}.pt"
+            )
 
-            grad = self._calculate_grad(model, dataloader)
-            cos_sim = torch.nn.functional.cosine_similarity(target_grad, grad, dim=0)
-            logger.info(f"Initial similarity for {name}: {cos_sim.detach().clone().item()}")
-            self._similarities[name] = cos_sim.detach().clone()
+        logger.info(f"Initializing weights with {self.args.weight_initialization_samples} samples per dataset")
+
+        if os.path.exists(weight_save_file):
+            similarities = torch.load(weight_save_file)
+            for name in self.train_dataset_dict:
+                self._similarities[name] = torch.tensor(similarities[name], dtype=torch.float).to(model.device)
+        else:
+            similarities = {}
+            target_grad = self._calculate_grad(model, target_dataloader)
+            for name, dataset in tqdm(self.train_dataset_dict.items(), desc="Weight Initialization"):
+                num_samples = min(self.args.weight_initialization_samples, len(dataset))
+                d = torch.utils.data.dataset.Subset(dataset, range(0,num_samples))
+                dataloader = self.get_target_dataloader(d)
+
+                grad = self._calculate_grad(model, dataloader)
+                cos_sim = torch.nn.functional.cosine_similarity(target_grad, grad, dim=0)
+                similarities[name] = cos_sim.detach().clone().item()
+                logger.info(f"Initial similarity for {name}: {similarities[name]}")
+                self._similarities[name] = cos_sim.detach().clone()
+            torch.save(similarities, weight_save_file)
 
         if self.args.weighted_batch_sampling:
             weights = torch.tensor(list(self._similarities.values()))
