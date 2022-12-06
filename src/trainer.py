@@ -1709,9 +1709,13 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
 
         # add remaining tr_loss
         self._total_loss_scalar += tr_loss.item()
-        if self.state.global_step > 0:
+
+        # Check if we've run eval
+        if self.state.global_step > args.eval_steps:
             train_loss = self._total_loss_scalar / self.state.global_step
         else:
+            # if not, do so manually
+            self.manual_eval_and_save(model, trial, ignore_keys_for_eval)
             train_loss = 0.0
 
         metrics = speed_metrics("train", start_time, num_samples=num_train_samples, num_steps=self.state.max_steps)
@@ -1768,3 +1772,18 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         if self.control.should_save:
             self._save_checkpoint(model, trial, metrics=metrics)
             self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
+    def manual_eval_and_save(self, model, trial, ignore_keys_for_eval):
+        if isinstance(self.eval_dataset, dict):
+            for eval_dataset_name, eval_dataset in self.eval_dataset.items():
+                metrics = self.evaluate(
+                    eval_dataset=eval_dataset,
+                    ignore_keys=ignore_keys_for_eval,
+                    metric_key_prefix=f"eval_{eval_dataset_name}",
+                )
+        else:
+            metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
+        self._report_to_hp_search(trial, self.state.global_step, metrics)
+
+        self._save_checkpoint(model, trial, metrics=metrics)
+        self.control = self.callback_handler.on_save(self.args, self.state, self.control)
