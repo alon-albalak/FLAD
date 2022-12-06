@@ -3,6 +3,7 @@ import math
 import sys
 import time
 import os
+import json
 from tqdm.auto import tqdm
 
 import numpy as np
@@ -57,7 +58,7 @@ from data.data_utils import (
     MTCLDistributedBatchSampler,
     MTCLWeightedBatchSampler
 )
-from arguments import MTCLTrainingArguments, DataTrainingArguments
+from arguments import MTCLTrainingArguments, DataTrainingArguments, TargetDatasetArguments
 
 logger = logging.get_logger(__name__)
 
@@ -1017,6 +1018,8 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = None,
         similarity_beta: Optional[float] = 1,
         data_args: DataTrainingArguments = None,
+        target_dataset_args: TargetDatasetArguments = None,
+        
     ):
         super().__init__(
             model,args, data_collator,train_dataset,eval_dataset,
@@ -1028,6 +1031,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         self.similarity_beta = similarity_beta
         self.train_dataset_dict = train_dataset_dict
         self.data_args = data_args
+        self.target_dataset_args = target_dataset_args
         # Initialize gradients and similarities
         self._initialize_grads_similarities()
 
@@ -1257,27 +1261,30 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                                     threshold=self.args.dataset_similarity_threshold)
 
     def _initialize_weights(self, train_dataloader, target_dataloader, model):
-        # Temporarily adjust batch sizes for efficiency
-        batch_scale_factor=2
-        self.args.per_device_train_batch_size = self.args.per_device_train_batch_size * batch_scale_factor
-        self._train_batch_size = self._train_batch_size * batch_scale_factor
-        
+        # Initialize weights for each dataset
+
+        # rename models with symbols incompatible with file names
         model_name = model.name_or_path.replace("/","-")
+
+        # save path for weights
         weight_save_path = os.path.join(os.path.dirname(__file__),"initial_similarities")
         if not os.path.exists(weight_save_path):
             os.makedirs(weight_save_path)
         weight_save_file = os.path.join(weight_save_path,
             f"{self.args.weight_initialization_samples}_{self.data_args.target_dataset}_"
-            f"{self.data_args.auxiliary_dataset}_{model_name}_{self.args.seed}.pt"
+            f"{self.data_args.auxiliary_dataset}_{model_name}_{self.target_dataset_args.few_shot_random_seed}.json"
             )
 
         logger.info(f"Initializing weights with {self.args.weight_initialization_samples} samples per dataset")
 
+        # load weights if they exist
         if os.path.exists(weight_save_file):
-            similarities = torch.load(weight_save_file)
+            logger.info(f"Loading weights from {weight_save_file}")
+            similarities = json.load(open(weight_save_file))
             for name in self.train_dataset_dict:
                 self._similarities[name] = torch.tensor(similarities[name], dtype=torch.float).to(model.device)
         else:
+            # calculate similarities
             similarities = {}
             target_grad = self._calculate_grad(model, target_dataloader)
             for name, dataset in tqdm(self.train_dataset_dict.items(), desc="Weight Initialization"):
@@ -1290,14 +1297,12 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                 similarities[name] = cos_sim.detach().clone().item()
                 logger.info(f"Initial similarity for {name}: {similarities[name]}")
                 self._similarities[name] = cos_sim.detach().clone()
-            torch.save(similarities, weight_save_file)
+            with open(weight_save_file, 'w') as f:
+                json.dump(similarities, f, indent=2)
 
         if self.args.weighted_batch_sampling:
             weights = torch.tensor(list(self._similarities.values()))
             self._update_dataloader_weights(train_dataloader, weights)
-        
-        self.args.per_device_train_batch_size = self.args.per_device_train_batch_size / batch_scale_factor
-        self._train_batch_size = self._train_batch_size / batch_scale_factor
 
         logger.info(f"Initial similarities: {self._similarities}")
 

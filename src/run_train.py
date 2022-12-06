@@ -289,7 +289,8 @@ def main():
             compute_metrics=compute_metrics if training_args.predict_with_generate else None,
             callbacks= [EarlyStoppingCallback(early_stopping_patience=training_args.patience)] if training_args.patience else None,
             similarity_beta=training_args.similarity_beta,
-            data_args = data_args
+            data_args = data_args,
+            target_dataset_args = target_dataset_args
         )
     else:
         trainer = MTCLSeq2SeqTrainer(
