@@ -2040,6 +2040,20 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
             "help": "Frequency of gradient updates to train on the target task. By default train on the target task before every gradient update."
         }
     )
+    micro_batch_size: Optional[int] = field(
+        default=0,
+        metadata={
+            "help": "Field for micro-batching, which decomposes a single batch into micro-batches. "
+            "If 0, no micro-batching is used, model will be trained with full batch size."
+        }
+    )
+    offload_grads: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Flag to move gradients to CPU for computing similarity. "
+            "Useful when using full model gradients."
+        }
+    )
 
     def __post_init__(self):
         if not any([self.do_train, self.do_eval, self.do_predict]):
