@@ -1035,6 +1035,46 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         # Initialize gradients and similarities
         self._initialize_grads_similarities()
 
+    def _training_step_large_model(self, model, inputs, batch_dataset, scale_by_similarities):
+        batch_size = inputs["input_ids"].shape[0]
+        batch_keys = list(inputs.keys())
+        micro_batch_loss = 0
+        for i in range(0, batch_size, self.args.micro_batch_size):
+            micro_inputs = {k: inputs[k][i:i+self.args.micro_batch_size] for k in batch_keys}
+
+            if is_sagemaker_mp_enabled():
+                loss_mb = smp_forward_backward(model, micro_inputs, self.args.gradient_accumulation_steps)
+                return loss_mb.reduce_mean().detach().to(self.args.device)
+
+            with self.compute_loss_context_manager():
+                loss = self.compute_loss(model, micro_inputs)
+
+            if self.args.n_gpu > 1:
+                loss = loss.mean()  # mean() to average on multi-gpu parallel training
+
+            # scale loss by similarity to target dataset
+            if scale_by_similarities:
+                loss = loss*self._similarities[batch_dataset]
+
+            if self.args.gradient_accumulation_steps > 1 and not self.deepspeed:
+                # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
+                loss = loss / self.args.gradient_accumulation_steps
+
+            if self.do_grad_scaling:
+                self.scaler.scale(loss).backward()
+            elif self.use_apex:
+                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            elif self.deepspeed:
+                # loss gets scaled under gradient_accumulation_steps in deepspeed
+                loss = self.deepspeed.backward(loss)
+            else:
+                loss.backward()
+
+            micro_batch_loss += loss
+
+        return micro_batch_loss
+
     def training_step(
             self,
             model: nn.Module,
@@ -1074,51 +1114,59 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                             else:
                                 first_param = False
                         prev_grads[name] = param.grad.detach().clone()
+                        if self.args.offload_grads:
+                            # move gradients to cpu
+                            prev_grads[name] = prev_grads[name].cpu()
 
         model.train()
         inputs = self._prepare_inputs(inputs)
 
-        if is_sagemaker_mp_enabled():
-            loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
-            return loss_mb.reduce_mean().detach().to(self.args.device)
+        if self.args.micro_batch_size > 0:
+            loss = self._training_step_large_model(model, inputs, batch_dataset, scale_by_similarities)
 
-        with self.compute_loss_context_manager():
-            loss = self.compute_loss(model, inputs)
-
-        if self.args.n_gpu > 1:
-            loss = loss.mean()  # mean() to average on multi-gpu parallel training
-
-        # scale loss by similarity to target dataset
-        if scale_by_similarities:
-            loss = loss*self._similarities[batch_dataset]
-
-        if self.args.gradient_accumulation_steps > 1 and not self.deepspeed:
-            # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
-            loss = loss / self.args.gradient_accumulation_steps
-
-        if self.do_grad_scaling:
-            self.scaler.scale(loss).backward()
-        elif self.use_apex:
-            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                scaled_loss.backward()
-        elif self.deepspeed:
-            # loss gets scaled under gradient_accumulation_steps in deepspeed
-            loss = self.deepspeed.backward(loss)
         else:
-            loss.backward()
+            if is_sagemaker_mp_enabled():
+                loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
+                return loss_mb.reduce_mean().detach().to(self.args.device)
+
+            with self.compute_loss_context_manager():
+                loss = self.compute_loss(model, inputs)
+
+            if self.args.n_gpu > 1:
+                loss = loss.mean()  # mean() to average on multi-gpu parallel training
+
+            # scale loss by similarity to target dataset
+            if scale_by_similarities:
+                loss = loss*self._similarities[batch_dataset]
+
+            if self.args.gradient_accumulation_steps > 1 and not self.deepspeed:
+                # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
+                loss = loss / self.args.gradient_accumulation_steps
+
+            if self.do_grad_scaling:
+                self.scaler.scale(loss).backward()
+            elif self.use_apex:
+                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            elif self.deepspeed:
+                # loss gets scaled under gradient_accumulation_steps in deepspeed
+                loss = self.deepspeed.backward(loss)
+            else:
+                loss.backward()
 
         # gather gradients
         if return_grads:
             with torch.no_grad():
                 grads = []
                 for name, param in model.named_parameters():
-                    # print(name)
                     if self.args.similarity_strategy in name:
-                        # if "weight" in name:
+                        p = param.grad.detach()
+                        if self.args.offload_grads:
+                            p = p.cpu()
+                            
                         if prev_grads:
-                            p = param.grad.detach() - prev_grads[name]
-                        else:
-                            p = param.grad.detach()
+                            p = p - prev_grads[name]
+
                         grads.append(p)
                 grads = torch.concat([g.flatten() for g in grads])
             return loss.detach(), grads
@@ -1251,6 +1299,10 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                 self._similarities[dataset_name] = \
                     (1-self.similarity_beta)*self._similarities[dataset_name] + \
                         self.similarity_beta*cos_sim
+
+                # move similarity to device if needed
+                if self.args.offload_grads:
+                    self._similarities[dataset_name] = self._similarities[dataset_name].to(self.args.device)
 
                 if (self.args.dataset_similarity_threshold is not None) and \
                     (self._similarities[dataset_name] < self.args.dataset_similarity_threshold):
@@ -1664,7 +1716,10 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
 
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset)
 
-                    target_grad = self._calculate_grad(model, target_dataloader)
+                    target_grad = self._calculate_grad(model, target_dataloader).detach()
+                    if self.args.offload_grads:
+                        target_grad = target_grad.cpu()
+                        
                     self._update_grad_similarity(target_grad)
                     self._clear_grads()
                     if self.args.weighted_batch_sampling:
