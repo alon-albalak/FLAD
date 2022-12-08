@@ -150,7 +150,7 @@ def main():
     set_seed(training_args.seed)
 
     # pre-allocate memory
-    tmp_tensor = torch.rand([100000,100000], device=training_args.device)
+    # tmp_tensor = torch.rand([100000,100000], device=training_args.device)
 
     # TODO - ALON: If needed, implement training with auxiliary data only
     #       Requires changing the evaluation collator, evaluation metric, 
@@ -186,6 +186,7 @@ def main():
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
+        use_cache=False if training_args.gradient_checkpointing else True
     )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
@@ -272,9 +273,9 @@ def main():
         return result
 
     # remove pre-allocated memory
-    del tmp_tensor
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    # del tmp_tensor
+    # if torch.cuda.is_available():
+    #     torch.cuda.empty_cache()
 
     # Initialize our Trainer
     if training_args.gradient_directed and training_args.mtcl_strategy == "batched":
