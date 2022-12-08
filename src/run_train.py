@@ -150,7 +150,7 @@ def main():
     set_seed(training_args.seed)
 
     # pre-allocate memory
-    # tmp_tensor = torch.rand([100000,100000], device=training_args.device)
+    tmp_tensor = torch.rand([100000,100000], device=training_args.device)
 
     # TODO - ALON: If needed, implement training with auxiliary data only
     #       Requires changing the evaluation collator, evaluation metric, 
@@ -273,9 +273,9 @@ def main():
         return result
 
     # remove pre-allocated memory
-    # del tmp_tensor
-    # if torch.cuda.is_available():
-    #     torch.cuda.empty_cache()
+    del tmp_tensor
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     # Initialize our Trainer
     if training_args.gradient_directed and training_args.mtcl_strategy == "batched":
