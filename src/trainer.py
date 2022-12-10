@@ -1321,7 +1321,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         # save path for weights
         weight_save_path = os.path.join(os.path.dirname(__file__),"initial_similarities")
         if not os.path.exists(weight_save_path):
-            os.makedirs(weight_save_path)
+            os.makedirs(weight_save_path, exist_ok=True)
         weight_save_file = os.path.join(weight_save_path,
             f"{self.args.weight_initialization_samples}_{self.data_args.target_dataset}_"
             f"{self.data_args.auxiliary_dataset}_{model_name}_{self.target_dataset_args.few_shot_random_seed}.json"
