@@ -974,7 +974,8 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
             logs['step'] = self.state.global_step
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
-            logs["samples_seen_per_dataset"] = samples_seen_per_dataset
+            if samples_seen_per_dataset is not None:
+                logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
@@ -1807,7 +1808,8 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             logs['step'] = self.state.global_step
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
-            logs["samples_seen_per_dataset"] = samples_seen_per_dataset
+            if samples_seen_per_dataset is not None:
+                logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
             logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
 
             self._total_loss_scalar += tr_loss_scalar
