@@ -9,6 +9,8 @@ src/utils/
 MTCL_env/
 rempemi/
 .vscode/
+outputs/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
