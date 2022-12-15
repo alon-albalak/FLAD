@@ -1328,6 +1328,14 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             f"{self.data_args.auxiliary_dataset}_{model_name}_{self.target_dataset_args.few_shot_random_seed}.json"
             )
 
+        # save path for gradients
+        grad_save_path = os.path.join(os.path.dirname(__file__),"initial_gradients",
+            f"{self.args.weight_initialization_samples}_{self.data_args.auxiliary_dataset}_"
+            f"{model_name}"
+        )
+        if not os.path.exists(grad_save_path):
+            os.makedirs(grad_save_path, exist_ok=True)
+
         logger.info(f"Initializing weights with {self.args.weight_initialization_samples} samples per dataset")
 
         # load weights if they exist
@@ -1341,11 +1349,17 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             similarities = {}
             target_grad = self._calculate_grad(model, target_dataloader)
             for name, dataset in tqdm(self.train_dataset_dict.items(), desc="Weight Initialization"):
-                num_samples = min(self.args.weight_initialization_samples, len(dataset))
-                d = torch.utils.data.dataset.Subset(dataset, range(0,num_samples))
-                dataloader = self.get_target_dataloader(d)
+                save_name = name.replace("/","-")
+                grad_save_file = os.path.join(grad_save_path, f"{save_name}.pt")
+                if os.path.exists(grad_save_file):
+                    grad = torch.load(grad_save_file)
+                else:
+                    num_samples = min(self.args.weight_initialization_samples, len(dataset))
+                    d = torch.utils.data.dataset.Subset(dataset, range(0,num_samples))
+                    dataloader = self.get_target_dataloader(d)
+                    grad = self._calculate_grad(model, dataloader)
+                    torch.save(grad, grad_save_file)
 
-                grad = self._calculate_grad(model, dataloader)
                 cos_sim = torch.nn.functional.cosine_similarity(target_grad, grad, dim=0)
                 similarities[name] = cos_sim.detach().clone().item()
                 logger.info(f"Initial similarity for {name}: {similarities[name]}")
