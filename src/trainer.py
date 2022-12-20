@@ -1904,7 +1904,6 @@ class Exp3BatchedMTCLTrainer(BatchedMTCLTrainer):
         for dataset_name in self.auxiliary_dataset_names:
             self._probabilities[dataset_name] = \
                 torch.exp(self._cumulative_estimated_reward[dataset_name])/tot_estimated_rewards
-        assert(torch.sum(torch.tensor(list(self._probabilities.values()))) == 1)
 
     def _update_dataloader_weights(self, dataloader):
         # calculate weights as 
@@ -1929,6 +1928,7 @@ class Exp3BatchedMTCLTrainer(BatchedMTCLTrainer):
             if samples_seen_per_dataset is not None:
                 logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
             logs['cumulative_estimated_reward'] = {k: v.item() for k,v in self._cumulative_estimated_reward.items()}
+            logs['probabilities'] = {k: v.item() for k,v in self._probabilities.items()}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
