@@ -2019,6 +2019,7 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
         metadata={
             "help": "Rate at which to sample from target dataset relative to other datasets."
                     " Only used when train_strategy=auxiliary_and_target and gradient_directed=False"
+                    " For sampling rate when gradient_directed=True, see target_training_frequency."
         }
     )
     similarity_beta: Optional[float] = field(
@@ -2038,6 +2039,7 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
         default=1,
         metadata={
             "help": "Frequency of gradient updates to train on the target task. By default train on the target task before every gradient update."
+                    " Only used when gradient_directed=True, see relative_sampling_from_target for gradient_directed=False."
         }
     )
     micro_batch_size: Optional[int] = field(
@@ -2052,6 +2054,12 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
         metadata={
             "help": "Flag to move gradients to CPU for computing similarity. "
             "Useful when using full model gradients."
+        }
+    )
+    exp3: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Flag to use Exp3 algorithm for batch weighting."
         }
     )
 

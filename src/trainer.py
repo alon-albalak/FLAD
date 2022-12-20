@@ -1309,7 +1309,8 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     (self._similarities[dataset_name] < self.args.dataset_similarity_threshold):
                     self._similarities[dataset_name] = self._similarities[dataset_name] * 0
 
-    def _update_dataloader_weights(self, dataloader, weights):
+    def _update_dataloader_weights(self, dataloader):
+        weights = torch.tensor(list(self._similarities.values()))
         dataloader.batch_sampler.update_weights_and_distribution(weights, \
                                     threshold=self.args.dataset_similarity_threshold)
 
@@ -1368,8 +1369,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                 json.dump(similarities, f, indent=2)
 
         if self.args.weighted_batch_sampling:
-            weights = torch.tensor(list(self._similarities.values()))
-            self._update_dataloader_weights(train_dataloader, weights)
+            self._update_dataloader_weights(train_dataloader)
 
         logger.info(f"Initial similarities: {self._similarities}")
 
@@ -1738,8 +1738,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
                     self._update_grad_similarity(target_grad)
                     self._clear_grads()
                     if self.args.weighted_batch_sampling:
-                        weights = torch.tensor(list(self._similarities.values()))
-                        self._update_dataloader_weights(train_dataloader, weights)
+                        self._update_dataloader_weights(train_dataloader)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -1863,3 +1862,93 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
 
         self._save_checkpoint(model, trial, metrics=metrics)
         self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
+class Exp3BatchedMTCLTrainer(BatchedMTCLTrainer):
+    def _initialize_grads_similarities(self):
+        # Initialize gradients and gradient similarities
+        self._gradients = {name: None for name in self.auxiliary_dataset_names}
+        self._similarities = {name: torch.tensor(1, dtype=torch.float) for name in self.auxiliary_dataset_names}
+        self._cumulative_estimated_reward = {name: torch.tensor(0, dtype=torch.float) for name in self.auxiliary_dataset_names}
+        self._probabilities = {name: None for name in self.auxiliary_dataset_names}
+        self._update_probabilities()
+
+    def _initialize_weights(self, train_dataloader, target_dataloader, model):
+        super()._initialize_weights(train_dataloader, target_dataloader, model)
+        self._update_probabilities()
+
+    def _update_grad_similarity(self, target_grad):
+        # calculate cosine similarity between grads and target
+        for dataset_name in self.auxiliary_dataset_names:
+            if self._gradients[dataset_name] is not None:
+                cos_sim = torch.nn.functional.cosine_similarity(target_grad, self._gradients[dataset_name], dim=0)
+                self._similarities[dataset_name] = \
+                    (1-self.similarity_beta)*self._similarities[dataset_name] + \
+                        self.similarity_beta*cos_sim
+
+                # Exp3 update
+                self._cumulative_estimated_reward[dataset_name] = self._cumulative_estimated_reward[dataset_name] + 1 - \
+                    (1-self._similarities[dataset_name])/self._probabilities[dataset_name]
+
+                # move similarity to device if needed
+                if self.args.offload_grads:
+                    self._similarities[dataset_name] = self._similarities[dataset_name].to(self.args.device)
+
+                if (self.args.dataset_similarity_threshold is not None) and \
+                    (self._similarities[dataset_name] < self.args.dataset_similarity_threshold):
+                    self._similarities[dataset_name] = self._similarities[dataset_name] * 0
+        self._update_probabilities()
+
+    def _update_probabilities(self):
+        # calculate probabilities
+        tot_estimated_rewards = torch.sum(torch.exp(torch.tensor(list(self._cumulative_estimated_reward.values()))))
+        for dataset_name in self.auxiliary_dataset_names:
+            self._probabilities[dataset_name] = \
+                torch.exp(self._cumulative_estimated_reward[dataset_name])/tot_estimated_rewards
+        assert(torch.sum(torch.tensor(list(self._probabilities.values()))) == 1)
+
+    def _update_dataloader_weights(self, dataloader):
+        # calculate weights as 
+        weights = torch.tensor(list(self._probabilities.values()))
+        dataloader.batch_sampler.update_weights_and_distribution(weights, \
+                                    threshold=self.args.dataset_similarity_threshold)
+
+    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset):
+        if self.control.should_log:
+
+            logs: Dict[str, float] = {}
+
+            # all_gather + mean() to get average loss over all processes
+            tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+
+            # reset tr_loss to zero
+            tr_loss -= tr_loss
+
+            logs['step'] = self.state.global_step
+            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+            logs["learning_rate"] = self._get_learning_rate()
+            if samples_seen_per_dataset is not None:
+                logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
+            logs['cumulative_estimated_reward'] = {k: v.item() for k,v in self._cumulative_estimated_reward.items()}
+
+            self._total_loss_scalar += tr_loss_scalar
+            self._globalstep_last_logged = self.state.global_step
+            self.store_flos()
+
+            self.log(logs)
+
+        metrics = None
+        if self.control.should_evaluate:
+            if isinstance(self.eval_dataset, dict):
+                for eval_dataset_name, eval_dataset in self.eval_dataset.items():
+                    metrics = self.evaluate(
+                        eval_dataset=eval_dataset,
+                        ignore_keys=ignore_keys_for_eval,
+                        metric_key_prefix=f"eval_{eval_dataset_name}",
+                    )
+            else:
+                metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
+            self._report_to_hp_search(trial, self.state.global_step, metrics)
+
+        if self.control.should_save:
+            self._save_checkpoint(model, trial, metrics=metrics)
+            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
