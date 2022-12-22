@@ -48,7 +48,12 @@ from arguments import (
     TargetDatasetArguments,
     MTCLTrainingArguments
 )
-from trainer import MTCLSeq2SeqTrainer, BatchedMTCLTrainer, Exp3BatchedMTCLTrainer
+from trainer import (
+    MTCLSeq2SeqTrainer,
+    BatchedMTCLTrainer,
+    Exp3BatchedMTCLTrainer,
+    UCB1BatchedMTCLTrainer
+)
 from data.data_utils import (
     DatasetWithTemplate,
     MTCLWeightedIterableDataset,
@@ -281,6 +286,21 @@ def main():
     if training_args.gradient_directed and training_args.mtcl_strategy == "batched":
         if training_args.exp3:
             trainer = Exp3BatchedMTCLTrainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_dataset if training_args.do_train else None,
+                train_dataset_dict=train_dataset_dict if training_args.weight_initialization_samples else None,
+                eval_dataset=validation_dataset if training_args.do_eval else None,
+                target_dataset=target_dataset if training_args.gradient_directed else None,
+                tokenizer=tokenizer,
+                compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+                callbacks= [EarlyStoppingCallback(early_stopping_patience=training_args.patience)] if training_args.patience else None,
+                similarity_beta=training_args.similarity_beta,
+                data_args = data_args,
+                target_dataset_args = target_dataset_args
+            )
+        elif training_args.ucb1:
+            trainer = UCB1BatchedMTCLTrainer(
                 model=model,
                 args=training_args,
                 train_dataset=train_dataset if training_args.do_train else None,

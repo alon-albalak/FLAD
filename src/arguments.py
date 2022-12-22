@@ -2062,6 +2062,12 @@ class MTCLTrainingArguments(Seq2SeqTrainingArguments):
             "help": "Flag to use Exp3 algorithm for batch weighting."
         }
     )
+    ucb1: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Flag to use UCB1 algorithm for batch weighting."
+        }
+    )
 
     def __post_init__(self):
         if not any([self.do_train, self.do_eval, self.do_predict]):
