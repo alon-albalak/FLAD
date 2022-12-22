@@ -1870,6 +1870,8 @@ class Exp3BatchedMTCLTrainer(BatchedMTCLTrainer):
         self._similarities = {name: torch.tensor(1, dtype=torch.float) for name in self.auxiliary_dataset_names}
         self._cumulative_estimated_reward = {name: torch.tensor(0, dtype=torch.float) for name in self.auxiliary_dataset_names}
         self._probabilities = {name: None for name in self.auxiliary_dataset_names}
+        self.eps = 1/len(self.auxiliary_dataset_names)
+        self.prev_eps = None
         self._update_probabilities()
 
     def _initialize_weights(self, train_dataloader, target_dataloader, model):
@@ -1886,8 +1888,8 @@ class Exp3BatchedMTCLTrainer(BatchedMTCLTrainer):
                         self.similarity_beta*cos_sim
 
                 # Exp3 update
-                self._cumulative_estimated_reward[dataset_name] = self._cumulative_estimated_reward[dataset_name] + 1 - \
-                    (1-self._similarities[dataset_name])/self._probabilities[dataset_name]
+                self._cumulative_estimated_reward[dataset_name] = self._cumulative_estimated_reward[dataset_name] + \
+                    ((self._similarities[dataset_name])/self._probabilities[dataset_name])
 
                 # move similarity to device if needed
                 if self.args.offload_grads:
@@ -1899,14 +1901,20 @@ class Exp3BatchedMTCLTrainer(BatchedMTCLTrainer):
         self._update_probabilities()
 
     def _update_probabilities(self):
-        # calculate probabilities
-        tot_estimated_rewards = torch.sum(torch.exp(torch.tensor(list(self._cumulative_estimated_reward.values()))))
+        # calculate epsilons
+        self.prev_eps = self.eps
+        self.eps = min(1/len(self.auxiliary_dataset_names), np.sqrt(np.log(len(self.auxiliary_dataset_names))/(len(self.auxiliary_dataset_names)*((self.state.global_step*self.args.gradient_accumulation_steps*10)+1))))
+
+        # calculate scaling factor
+        tot_estimated_rewards = torch.sum(torch.exp(torch.tensor(list(self._cumulative_estimated_reward.values()))*self.prev_eps))
+        scaling_factor = (1-len(self.auxiliary_dataset_names)*self.eps)/tot_estimated_rewards
+        
+        # update probabilities
         for dataset_name in self.auxiliary_dataset_names:
             self._probabilities[dataset_name] = \
-                torch.exp(self._cumulative_estimated_reward[dataset_name])/tot_estimated_rewards
+                torch.exp(self.prev_eps*self._cumulative_estimated_reward[dataset_name])*scaling_factor + self.eps
 
     def _update_dataloader_weights(self, dataloader):
-        # calculate weights as 
         weights = torch.tensor(list(self._probabilities.values()))
         dataloader.batch_sampler.update_weights_and_distribution(weights, \
                                     threshold=self.args.dataset_similarity_threshold)
@@ -1929,6 +1937,7 @@ class Exp3BatchedMTCLTrainer(BatchedMTCLTrainer):
                 logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
             logs['cumulative_estimated_reward'] = {k: v.item() for k,v in self._cumulative_estimated_reward.items()}
             logs['probabilities'] = {k: v.item() for k,v in self._probabilities.items()}
+            logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
