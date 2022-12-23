@@ -319,6 +319,7 @@ if __name__ == "__main__":
     parser.add_argument("--weight_initialization_samples", type=int, default=0)
     parser.add_argument("--train_strategy", type=str, default="auxiliary_and_target")
     parser.add_argument("--gradient_directed", type=bool, default=True)
+    parser.add_argument("--base_output_dir", type=str, default=None)#/share/edc/home/alon_albalak/MTCL/outputs
     args = parser.parse_args()
 
     # model arguments
@@ -388,10 +389,16 @@ if __name__ == "__main__":
     ucb1=True
 
     # method arguments
-    base_output_dir=f"{MAIN_OUTPUT_DIR}/{model_name}/{args.aux_dataset}/"+\
+    if args.base_output_dir is not None:
+        base_output_dir=f"{args.base_output_dir}/{model_name}/{args.aux_dataset}/"+\
         "{}/"+f"{args.seed}/{args.target_dataset}/"+\
             "{}/{}/{}/"+\
             f"{args.weight_initialization_samples}"
+    else:    
+        base_output_dir=f"{MAIN_OUTPUT_DIR}/{model_name}/{args.aux_dataset}/"+\
+            "{}/"+f"{args.seed}/{args.target_dataset}/"+\
+                "{}/{}/{}/"+\
+                f"{args.weight_initialization_samples}"
     overwrite_output_dir=True
     predict_with_generate=True
     evaluation_strategy="steps"

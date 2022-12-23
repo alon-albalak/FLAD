@@ -341,6 +341,7 @@ if __name__ == "__main__":
     parser.add_argument("--weight_initialization_samples", type=int, default=0)
     parser.add_argument("--train_strategy", type=str, default="auxiliary_and_target")
     parser.add_argument("--gradient_directed", type=bool, default=False)
+    parser.add_argument("--base_output_dir", type=str, default=None)#/share/edc/home/alon_albalak/MTCL/outputs
     args = parser.parse_args()
 
     # model arguments
@@ -422,8 +423,12 @@ if __name__ == "__main__":
         method = "mixed_train"
     else:
         method = "exploitation_only"
-    base_output_dir=f"{MAIN_OUTPUT_DIR}/{model_name}/{args.aux_dataset}/"+\
+    if args.base_output_dir is not None:
+        base_output_dir=f"{args.base_output_dir}/{model_name}/{args.aux_dataset}/"+\
         f"{method}/{args.seed}/{args.target_dataset}/"+"{}/{}/{}"
+    else:
+        base_output_dir=f"{MAIN_OUTPUT_DIR}/{model_name}/{args.aux_dataset}/"+\
+            f"{method}/{args.seed}/{args.target_dataset}/"+"{}/{}/{}"
     overwrite_output_dir=True
     predict_with_generate=True
     # max_steps=10000
