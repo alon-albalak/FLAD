@@ -350,7 +350,7 @@ if __name__ == "__main__":
         model_name = "T5_LM_base"
         per_device_train_batch_size=16
         per_device_eval_batch_size=128
-        gradient_accumulation_step_sizes = [2, 4]
+        gradient_accumulation_step_sizes = [4]
         lrs = [3e-4, 1e-4]
         gradient_checkpointing=False
         max_steps=10000
@@ -363,7 +363,7 @@ if __name__ == "__main__":
         model_name = "T5_LM_3B"
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
-        gradient_accumulation_step_sizes = [4, 8]
+        gradient_accumulation_step_sizes = [8]
         lrs = [1e-4]
         gradient_checkpointing=True
         max_steps=10000
@@ -376,7 +376,7 @@ if __name__ == "__main__":
         model_name = "T0_3B"
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
-        gradient_accumulation_step_sizes = [4, 8]
+        gradient_accumulation_step_sizes = [8]
         lrs = [1e-4]
         gradient_checkpointing = True
         max_steps=10000
@@ -481,7 +481,7 @@ if __name__ == "__main__":
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    relative_sampling_ratios = [10, 5, 1]
+    relative_sampling_ratios = [10, 5]
     
     # iterate over relative_sampling_ratios and lrs
     count = 1
