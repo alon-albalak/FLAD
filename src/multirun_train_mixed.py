@@ -350,6 +350,7 @@ if __name__ == "__main__":
         per_device_train_batch_size=16
         per_device_eval_batch_size=128
         gradient_accumulation_step_sizes = [2, 4]
+        lrs = [3e-4, 1e-4]
         gradient_checkpointing=False
         max_steps=10000
         eval_steps=100
@@ -362,6 +363,7 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_accumulation_step_sizes = [4, 8]
+        lrs = [1e-4]
         gradient_checkpointing=True
         max_steps=10000
         eval_steps=100
@@ -374,6 +376,7 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_accumulation_step_sizes = [4, 8]
+        lrs = [1e-4]
         gradient_checkpointing = True
         max_steps=10000
         eval_steps=100
@@ -474,7 +477,6 @@ if __name__ == "__main__":
         torch.cuda.empty_cache()
 
     relative_sampling_ratios = [10, 5, 1]
-    lrs = [3e-4, 1e-4]
     
     # iterate over relative_sampling_ratios and lrs
     count = 1

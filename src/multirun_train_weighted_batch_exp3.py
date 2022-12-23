@@ -344,7 +344,7 @@ if __name__ == "__main__":
         gradient_checkpointing = True
         betas = [1.0]
         grad_accs = [4, 16]
-        lrs = [3e-4, 1e-4]
+        lrs = [1e-4]
         max_steps=10000
         eval_steps=100
         save_steps=100
@@ -358,7 +358,7 @@ if __name__ == "__main__":
         gradient_checkpointing = True
         betas = [1.0]
         grad_accs = [4, 16]
-        lrs = [3e-4, 1e-4]
+        lrs = [1e-4]
         max_steps=10000
         eval_steps=100
         save_steps=100
