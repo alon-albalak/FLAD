@@ -13,8 +13,10 @@ for SEED in ${SEEDS[@]}; do
             OUTPUT_DIR="outputs/train_logs/mixed_train/$SEED/$MODEL/${AUX_DATASET}/${TARGET_DATASET}"
             mkdir -p $OUTPUT_DIR
 
-            echo "Running $SEED $MODEL $AUX_DATASET $TARGET_DATASET mixed train"
-
+            echo $(date)
+            echo "Running $SEED $MODEL $AUX_DATASET $TARGET_DATASET exploitation only"
+            echo "Saving log to ${OUTPUT_DIR}"
+            
             CUDA_VISIBLE_DEVICES=$GPU python src/multirun_train_mixed.py \
                 --seed $SEED \
                 --target_dataset $TARGET_DATASET \
