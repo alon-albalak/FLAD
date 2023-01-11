@@ -446,7 +446,7 @@ if __name__ == "__main__":
                     eval_steps=50
                     save_steps=50
                     eval_delay=50
-                    
+
                 if dataset_similarity_threshold is not None:
                     # add threshold to output dir
                     output_dir = base_output_dir.format(f"{loss_or_sample_name}_with_threshold", beta, grad_acc, lr, args.weight_initialization_samples)
@@ -518,6 +518,7 @@ if __name__ == "__main__":
                     weighted_batch_sampling=weighted_batch_sampling,
                     weight_initialization_samples=args.weight_initialization_samples,
                     dataset_similarity_threshold=dataset_similarity_threshold,
+                    offload_grads=args.offload_grads,
                     tf32=True,
                     ucb1=ucb1
                 )
