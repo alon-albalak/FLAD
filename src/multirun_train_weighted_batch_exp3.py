@@ -318,11 +318,14 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str)
     parser.add_argument("--weight_initialization_samples", type=int, default=0)
     parser.add_argument("--train_strategy", type=str, default="auxiliary_and_target")
+    parser.add_argument("--offload_grads", type=bool, default=False)
     parser.add_argument("--gradient_directed", type=bool, default=True)
     parser.add_argument("--base_output_dir", type=str, default=None)#/share/edc/home/alon_albalak/MTCL/outputs
     args = parser.parse_args()
 
     # model arguments
+    patience=10
+    max_steps=10000
     if args.model == "google/t5-base-lm-adapt":
         model_name_or_path = "google/t5-base-lm-adapt"
         model_name = "T5_LM_base"
@@ -330,13 +333,8 @@ if __name__ == "__main__":
         per_device_eval_batch_size=128
         gradient_checkpointing = False
         betas = [1.0]
-        grad_accs = [4, 16]
+        grad_accs = [16, 32]
         lrs = [3e-4, 1e-4]
-        max_steps=10000
-        eval_steps=100
-        save_steps=100
-        patience=10
-        eval_delay=100
     elif args.model == "google/t5-xl-lm-adapt":
         model_name_or_path = "google/t5-xl-lm-adapt"
         model_name = "T5_LM_3B"
@@ -344,13 +342,8 @@ if __name__ == "__main__":
         per_device_eval_batch_size=64
         gradient_checkpointing = True
         betas = [1.0]
-        grad_accs = [4, 16]
+        grad_accs = [16, 32]
         lrs = [1e-4]
-        max_steps=10000
-        eval_steps=100
-        save_steps=100
-        patience=10
-        eval_delay=100
     elif args.model == "bigscience/T0_3B":
         model_name_or_path = "bigscience/T0_3B"
         model_name = "T0_3B"
@@ -358,13 +351,8 @@ if __name__ == "__main__":
         per_device_eval_batch_size=64
         gradient_checkpointing = True
         betas = [1.0]
-        grad_accs = [4, 16]
+        grad_accs = [16, 32]
         lrs = [1e-4]
-        max_steps=10000
-        eval_steps=100
-        save_steps=100
-        patience=10
-        eval_delay=100
     else:
         raise ValueError("Model not supported")
 
@@ -450,6 +438,15 @@ if __name__ == "__main__":
     for lr in lrs:
         for beta in betas:
             for grad_acc in grad_accs:
+                if grad_acc == 16:
+                    eval_steps=100
+                    save_steps=100
+                    eval_delay=100
+                elif grad_acc == 32:
+                    eval_steps=50
+                    save_steps=50
+                    eval_delay=50
+                    
                 if dataset_similarity_threshold is not None:
                     # add threshold to output dir
                     output_dir = base_output_dir.format(f"{loss_or_sample_name}_with_threshold", beta, grad_acc, lr, args.weight_initialization_samples)
@@ -522,6 +519,7 @@ if __name__ == "__main__":
                     weight_initialization_samples=args.weight_initialization_samples,
                     dataset_similarity_threshold=dataset_similarity_threshold,
                     tf32=True,
+                    offload_grads=args.offload_grads,
                     exp3=exp3
                 )
 
