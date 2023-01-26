@@ -10,11 +10,11 @@ for SEED in ${SEEDS[@]}; do
     for AUX_DATASET in ${AUX_DATASETS[@]}; do
         for MODEL in ${MODELS[@]}; do
 
-            OUTPUT_DIR="outputs/train_logs/mixed_train/$SEED/$MODEL/${AUX_DATASET}/${TARGET_DATASET}"
+            OUTPUT_DIR="outputs/train_logs/explore_only/$SEED/$MODEL/${AUX_DATASET}/${TARGET_DATASET}"
             mkdir -p $OUTPUT_DIR
 
             echo $(date)
-            echo "Running $SEED $MODEL $AUX_DATASET $TARGET_DATASET mixed train"
+            echo "Running $SEED $MODEL $AUX_DATASET $TARGET_DATASET explore_only"
             echo "Saving log to ${OUTPUT_DIR}"
             
             CUDA_VISIBLE_DEVICES=$GPU python src/multirun_train_mixed.py \

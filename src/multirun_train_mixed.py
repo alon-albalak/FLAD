@@ -43,14 +43,14 @@ from arguments import (
     ModelArguments,
     DataTrainingArguments,
     TargetDatasetArguments,
-    MTCLTrainingArguments
+    FLADTrainingArguments
 )
 import argparse
-from trainer import MTCLSeq2SeqTrainer, BatchedMTCLTrainer
+from trainer import FLADSeq2SeqTrainer, BatchedFLADTrainer
 from data.data_utils import (
     DatasetWithTemplate,
-    MTCLWeightedIterableDataset,
-    MTCLWeightedMapDataset,
+    FLADWeightedIterableDataset,
+    FLADWeightedMapDataset,
     get_train_val_datasets,
     get_test_dataset
 )
@@ -180,13 +180,13 @@ def main(
                     # calculate relative sampling ratio in probability space
                     weights[target_dataset_index] *= training_args.relative_sampling_from_target
 
-                train_dataset = MTCLWeightedIterableDataset(train_dataset_dict, weights=weights, seed=training_args.seed)
+                train_dataset = FLADWeightedIterableDataset(train_dataset_dict, weights=weights, seed=training_args.seed)
             # If calculating per-sample gradients, use Iterable dataset
-            elif training_args.mtcl_strategy == "samples":
-                train_dataset = MTCLWeightedIterableDataset(train_dataset_dict, weights=weights, seed=training_args.seed)
+            elif training_args.FLAD_strategy == "mixed":
+                train_dataset = FLADWeightedIterableDataset(train_dataset_dict, weights=weights, seed=training_args.seed)
             # If calculating per-batch gradients, use Map dataset
             else:
-                train_dataset = MTCLWeightedMapDataset(train_dataset_dict, weights)
+                train_dataset = FLADWeightedMapDataset(train_dataset_dict, weights)
                 target_dataset = DatasetWithTemplate(target_dataset, tokenizer, include_answer_choices=False)
 
         elif isinstance(train_dataset, Dataset):
@@ -231,8 +231,8 @@ def main(
         return result
 
     # Initialize our Trainer
-    if training_args.gradient_directed and training_args.mtcl_strategy == "batched":
-        trainer = BatchedMTCLTrainer(
+    if training_args.gradient_directed and training_args.FLAD_strategy == "batched":
+        trainer = BatchedFLADTrainer(
             model=model,
             args=training_args,
             train_dataset=train_dataset if training_args.do_train else None,
@@ -247,7 +247,7 @@ def main(
             target_dataset_args = target_dataset_args
         )
     else:
-        trainer = MTCLSeq2SeqTrainer(
+        trainer = FLADSeq2SeqTrainer(
             model=model,
             args=training_args,
             train_dataset=train_dataset if training_args.do_train else None,
@@ -384,9 +384,9 @@ if __name__ == "__main__":
             few_shot_random_seed=args.seed,
             )
     if args.weight_initialization_samples == 0:
-        method = "mixed_train"
+        method = "explore_only"
     else:
-        method = "exploitation_only"
+        method = "exploit_only"
     if args.base_output_dir is not None:
         base_output_dir=f"{args.base_output_dir}/{model_name}/{args.aux_dataset}/"+\
         f"{method}/{args.seed}/{args.target_dataset}/"+"{}/{}/{}"
@@ -462,7 +462,7 @@ if __name__ == "__main__":
                 sys.stderr = open(err_file, "w")
 
                 # training arguments
-                training_args = MTCLTrainingArguments(
+                training_args = FLADTrainingArguments(
                     do_train=True,
                     do_eval=True,
                     train_strategy=args.train_strategy,

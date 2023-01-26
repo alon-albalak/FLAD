@@ -1,8 +1,11 @@
+# Much of this code is adapted from the T-FEW repository:
+#   https://github.com/r-three/t-few
+
 import os
 import json
 import logging
 import numpy as np
-from datasets import load_dataset, load_from_disk, Dataset
+from datasets import load_dataset, Dataset
 from promptsource.templates import DatasetTemplates, TemplateCollection
 import pandas as pd
 
@@ -267,8 +270,7 @@ def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
 
         else:
             dataset = load_dataset(name, subset, split=tmp_split, cache_dir=CACHE_DIR)
-        # if max_samples:
-        #     dataset = Dataset.from_dict(dataset[:max_samples])
+
         templates = [template for id, template in v.templates.items()]
         dataset.templates = templates
         dataset.name = get_dataset_name(name, subset)
@@ -330,60 +332,6 @@ def get_raft_dataset(name, split, target_dataset_args, return_as_dict=False):
         return dataset
 
 
-DATASETS_OFFLINE = "/fruitbasket/datasets/datasets_offline"
-MAX_EXAMPLES_PER_DATASET = 500_000
-TASK_BLACKLIST = [
-    # Tasks which often tokenize to > 1024 tokens currently
-    "hotpot_qa_distractor_Generate_Explanations",
-    "hotpot_qa_fullwiki_Generate_Explanations",
-    "hotpot_qa_distractor_Generate_Answer_and_Explanations",
-    "hotpot_qa_fullwiki_Generate_Answer_and_Explanations",
-    "hotpot_qa_fullwiki_Generate_Answer",
-    "hotpot_qa_distractor_Generate_Answer",
-    "hotpot_qa_distractor_Generate_Title_2",
-    "hotpot_qa_fullwiki_Generate_Title_2",
-    "hotpot_qa_fullwiki_Generate_Title_1",
-    "hotpot_qa_distractor_Generate_Title_1",
-    "hotpot_qa_distractor_Generate_Question",
-    "hotpot_qa_fullwiki_Generate_Question",
-    "tab_fact_tab_fact_tab_fact_3",
-    "tab_fact_tab_fact_tab_fact_2",
-    "tab_fact_tab_fact_tab_fact_1",
-    "tab_fact_tab_fact_tab_fact_7",
-    "tab_fact_tab_fact_tab_fact_4",
-    "tab_fact_tab_fact_tab_fact_5",
-    "tab_fact_tab_fact_tab_fact_6",
-    "wiki_hop_masked_Choose_Best_Object_Candidate",
-    "wiki_hop_masked_Indirect_Question_about_Birthplace_Citizenship_Place_of_Death",
-    "narrativeqa_Template_05",
-    "ecthr_cases_alleged_violation_prediction_silver_rationales",
-    # "amazon_polarity/amazon_polarity",
-    # "quail_context_question_answer_description_id",
-    # "quail_context_question_description_answer_text",
-    # "quail_context_question_answer_description_text",
-    # "quail_context_question_description_answer_id",
-    # "quail_context_question_answer_description_id",
-    # "quail_context_question_description_answer_text",
-    # "quail_context_question_answer_description_text",
-    # "quail_context_question_description_answer_id",
-    # "quail_description_context_question_text",
-    # "quail_description_context_question_answer_text",
-    # 'quail_context_description_question_answer_id',
-    # 'quail_context_description_question_answer_text',
-    # 'quail_context_description_question_text',
-    # 'quail_context_question_answer_description_text',
-    # 'quail_context_question_description_answer_id',
-    # 'quail_context_question_description_text',
-    # 'quail_description_context_question_answer_id',
-    # 'quail_description_context_question_answer_text',
-    # 'quail_description_context_question_text',
-    # 'quail_no_prompt_id',
-    # 'quail_no_prompt_text',
-    # Tasks with broken cached files
-    "gigaword_summarize_",
-]
-
-
 class BaseDatasetReader(object):
     """
     DatasetReader is responsible for reading and processing dataset
@@ -402,10 +350,7 @@ class BaseDatasetReader(object):
 
         :param split: split of data
         """
-        if os.path.exists(DATASETS_OFFLINE):
-            orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, *self.dataset_stash))[split]
-        else:
-            orig_data = load_dataset(*self.dataset_stash, split=split, cache_dir=CACHE_DIR)
+        orig_data = load_dataset(*self.dataset_stash, split=split, cache_dir=CACHE_DIR)
         return orig_data
 
     def read_few_shot_dataset(self, name, num_shot, few_shot_random_seed, split):
@@ -471,12 +416,9 @@ class StoryClozeReader(BaseDatasetReader):
             split = "validation"
         elif split == "validation":
             split = "test"
-
-        if os.path.exists(DATASETS_OFFLINE):
-            orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, *self.dataset_stash))[split]
-        else:
-            orig_data = load_dataset(*self.dataset_stash, split=split,
-                        data_dir="data/story_cloze/", cache_dir=CACHE_DIR)
+        
+        orig_data = load_dataset(*self.dataset_stash, split=split,
+                    data_dir="data/story_cloze/", cache_dir=CACHE_DIR)
 
         orig_data = [example for example in orig_data]
         for idx, example in enumerate(orig_data):

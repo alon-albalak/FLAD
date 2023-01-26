@@ -13,24 +13,28 @@ from .dataset_readers import get_datasets
 logger = logging.getLogger(__name__)
 
 def get_train_val_datasets(training_args, target_dataset_args, data_args):
+    # If only training with auxiliary data, use the auxiliary dataset for validation
     if training_args.train_strategy == "auxiliary_only":
         train_dataset = get_datasets(data_args.auxiliary_dataset, split="train",
                 max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True)
         validation_dataset = get_datasets(data_args.auxiliary_dataset, split="validation",return_as_dict=False)
 
+    # If training with auxiliary and target data, use the target dataset for validation
     elif training_args.train_strategy == "auxiliary_and_target":
         train_dataset = get_datasets(data_args.auxiliary_dataset, split="train",
                 max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True)
         validation_dataset = get_datasets(data_args.target_dataset, split="validation",
                             target_dataset_args=target_dataset_args, return_as_dict=False)
+        # If using Exp3 or UCB1, keep target dataset separate from auxiliary dataset
         if training_args.gradient_directed:
             target_dataset = get_datasets(data_args.target_dataset, split="train",
                                 target_dataset_args=target_dataset_args, return_as_dict=False)
+        # otherwise, get the target dataset and combine it with the auxiliary data
         else:
             target_dataset = get_datasets(data_args.target_dataset, split="train",
                                 target_dataset_args=target_dataset_args, return_as_dict=True)
             train_dataset.update(target_dataset)
-
+    # If training directly on target data
     else:
         train_dataset = get_datasets(data_args.target_dataset, split="train",
                             target_dataset_args=target_dataset_args, return_as_dict=False)
@@ -192,17 +196,16 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
         if self.cur_idx == self.__len__():
             self._restart()
             self.cur_idx += 1
-        # print(f"Cur idx: {self.cur_idx} - Mapped idx: {self.index_map[self.cur_idx]}")
         return self.__getitem__(int(self.index_map[self.cur_idx]))
 
-class MTCLWeightedMapDataset(torch.utils.data.dataset.ConcatDataset):
+class FLADWeightedMapDataset(torch.utils.data.dataset.ConcatDataset):
     """Simple wrapper for a concatenated dataset"""
     def __init__(self,datasets, weights: Optional[List[float]] = None):
-        super(MTCLWeightedMapDataset, self).__init__(datasets.values())
+        super(FLADWeightedMapDataset, self).__init__(datasets.values())
         self.dataset_names = list(datasets.keys())
         self.weights = weights
 
-class MTCLBatchSampler(torch.utils.data.BatchSampler):
+class FLADBatchSampler(torch.utils.data.BatchSampler):
     """
     Class used to group DatasetWithTemplate samples into batches.
     Individual batches will be entirely made up of samples from only 1 dataset
@@ -258,13 +261,11 @@ class MTCLBatchSampler(torch.utils.data.BatchSampler):
             generator = self.generator
         
         batch_idxs = torch.randperm(self.num_batches, generator=generator).tolist()
-        # print(f"BATCH IDXS: {batch_idxs}")
 
         for idx in batch_idxs:
             batch_dataset = self._batch_datasets[idx]
             dataset_indices = next(self._samplers[batch_dataset])
             dataset_indices = [self._dataset_idxs[batch_dataset][dataset_idx] for dataset_idx in dataset_indices]
-            # print(f"Dataset idx: {dataset_indices}")
             yield dataset_indices
         self._reset(generator)
 
@@ -274,10 +275,12 @@ class MTCLBatchSampler(torch.utils.data.BatchSampler):
     def set_epoch(self, epoch: int) -> None:
         self.epoch=epoch
 
-class MTCLWeightedBatchSampler(MTCLBatchSampler):
+class FLADWeightedBatchSampler(FLADBatchSampler):
     """
     Class used to group DatasetWithTemplate samples into batches.
-    Individual batches will be entirely made up of samples from only 1 dataset
+    Individual batches will be entirely made up of samples from only 1 dataset.
+    Batches will by sampled from datasets according to a softmax probability distribution
+        defined by self._weights
     """
     def __init__(
         self,
@@ -414,7 +417,7 @@ class MTCLWeightedBatchSampler(MTCLBatchSampler):
         self.epochs[dataset_name] += 1
 
 
-class MTCLDistributedBatchSampler(
+class FLADDistributedBatchSampler(
     torch.utils.data.distributed.DistributedSampler,
     torch.utils.data.sampler.BatchSampler
 ):
@@ -467,7 +470,7 @@ class MTCLDistributedBatchSampler(
         generator = torch.Generator()
         generator.manual_seed(self.seed + self.epoch + self.rank)
 
-        batch_sampler = MTCLBatchSampler(
+        batch_sampler = FLADBatchSampler(
             self.dataset,
             batch_size=self.batch_size,
             generator=generator,
@@ -477,7 +480,7 @@ class MTCLDistributedBatchSampler(
     def __len__(self) -> int:
         return (self.num_samples + self.batch_size - 1) // self.batch_size
 
-class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
+class FLADWeightedIterableDataset(torch.utils.data.IterableDataset):
     """
     Dataset class used to wrap multiple DatasetWithTemplate's
     Each DatasetWithTemplate will be sampled according to the probability 
@@ -564,7 +567,7 @@ class MTCLWeightedIterableDataset(torch.utils.data.IterableDataset):
         return self._infinite_iterator()
 
 @dataclass
-class MTCLDataCollator:
+class FLADDataCollator:
     tokenizer: PreTrainedTokenizerBase
     model: Optional[Any] = None
     padding: Union[bool, str, PaddingStrategy] = True
@@ -596,12 +599,6 @@ class MTCLDataCollator:
             target_ids = torch.nn.utils.rnn.pad_sequence(target_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
             lm_labels = target_ids + -100 * (target_ids == self.tokenizer.pad_token_id).long()  # [bs, max_seq_len]
             output_batch.update({"target_ids": lm_labels})
-            # decoder_input_ids = torch.cat(
-            #     [torch.zeros_like(lm_labels[:, :1]), target_ids[:, :-1]], dim=1
-            # )  # [bs, max_seq_len]
-            # decoder_attention_mask = (decoder_input_ids == decoder_input_ids).float()
-            
-            # HF Style
             if (
                 target_ids is not None
                 and self.model is not None
@@ -609,14 +606,6 @@ class MTCLDataCollator:
             ):
                 decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(labels=target_ids)
                 output_batch.update({"decoder_input_ids": decoder_input_ids})
-
-
-            # output_batch = {
-            #     "input_ids": input_ids,
-            #     "attention_mask": attention_mask,
-            #     "decoder_input_ids":decoder_input_ids,
-            #     "target_ids": lm_labels,
-            # }
 
         else:
             flat_answer_choice_ids = [choice for list_choices in answer_choices_ids for choice in list_choices]

@@ -6,7 +6,7 @@ src/EncoderDecoder.py
 src/debug/
 src/utils/
 **.lock
-MTCL_env/
+FLAD_env/
 rempemi/
 .vscode/
 outputs/

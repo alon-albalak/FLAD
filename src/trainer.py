@@ -53,12 +53,12 @@ if is_datasets_available():
     import datasets
 
 from data.data_utils import (
-    MTCLBatchSampler,
-    MTCLDataCollator,
-    MTCLDistributedBatchSampler,
-    MTCLWeightedBatchSampler
+    FLADBatchSampler,
+    FLADDataCollator,
+    FLADDistributedBatchSampler,
+    FLADWeightedBatchSampler
 )
-from arguments import MTCLTrainingArguments, DataTrainingArguments, TargetDatasetArguments
+from arguments import FLADTrainingArguments, DataTrainingArguments, TargetDatasetArguments
 
 logger = logging.get_logger(__name__)
 
@@ -83,7 +83,7 @@ class EvalLoopOutput(NamedTuple):
     metrics: Optional[Dict[str, float]]
     num_samples: Optional[int]
 
-class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
+class FLADSeq2SeqTrainer(Seq2SeqTrainer):
     def compute_loss(
         self,
         model: torch.nn.Module,
@@ -173,24 +173,24 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
                 )
 
         else:
-            if self.args.gradient_directed and self.args.mtcl_strategy == "batched":
+            if self.args.gradient_directed and self.args.FLAD_strategy == "batched":
                 if self.args.world_size <= 1:
                     if self.args.weighted_batch_sampling:
-                        return MTCLWeightedBatchSampler(
+                        return FLADWeightedBatchSampler(
                             self.train_dataset,
                             batch_size=self.args.train_batch_size,
                             generator=generator,
                             drop_last=self.args.dataloader_drop_last
                         )
                     else:
-                        return MTCLBatchSampler(
+                        return FLADBatchSampler(
                             self.train_dataset,
                             batch_size=self.args.train_batch_size,
                             generator=generator,
                             drop_last=self.args.dataloader_drop_last
                             )
                 else:
-                    return MTCLDistributedBatchSampler(
+                    return FLADDistributedBatchSampler(
                         self.train_dataset,
                         num_replicas=self.args.world_size,
                         rank=self.args.process_index,
@@ -222,7 +222,7 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
         train_dataset = self.train_dataset
         
         # Get custom collate_fn
-        data_collator = MTCLDataCollator(
+        data_collator = FLADDataCollator(
             tokenizer=self.tokenizer,
             model=self.model,
             pad_to_multiple_of=8 if self.args.fp16 else None,
@@ -291,7 +291,7 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
         eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
 
         # Get custom collate_fn
-        data_collator = MTCLDataCollator(
+        data_collator = FLADDataCollator(
             tokenizer=self.tokenizer,
             model=self.model,
             pad_to_multiple_of=8 if self.args.fp16 else None,
@@ -1001,11 +1001,11 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
             self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
 
-class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
+class BatchedFLADTrainer(FLADSeq2SeqTrainer):
     def __init__(
         self,
         model: Union[PreTrainedModel, nn.Module] = None,
-        args: MTCLTrainingArguments = None,
+        args: FLADTrainingArguments = None,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         train_dataset_dict: Optional[Dict] = None,
@@ -1212,7 +1212,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
             raise ValueError("Trainer: Gradient directed training requires a target_dataset.")
         
         # Get custom collate_fn
-        data_collator = MTCLDataCollator(
+        data_collator = FLADDataCollator(
             tokenizer=self.tokenizer,
             model=self.model,
             pad_to_multiple_of=8 if self.args.fp16 else None,
@@ -1863,7 +1863,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         self._save_checkpoint(model, trial, metrics=metrics)
         self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
-class Exp3BatchedMTCLTrainer(BatchedMTCLTrainer):
+class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
     def _initialize_grads_similarities(self):
         # Initialize gradients and gradient similarities
         self._gradients = {name: None for name in self.auxiliary_dataset_names}
@@ -1962,7 +1962,7 @@ class Exp3BatchedMTCLTrainer(BatchedMTCLTrainer):
             self._save_checkpoint(model, trial, metrics=metrics)
             self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
-class UCB1BatchedMTCLTrainer(BatchedMTCLTrainer):
+class UCB1BatchedFLADTrainer(BatchedFLADTrainer):
     def _update_dataloader_weights(self, dataloader, batches_per_dataset=None, step_remainder=0):
         # UCB1 update
         played_rounds = self.state.global_step*self.args.gradient_accumulation_steps+\

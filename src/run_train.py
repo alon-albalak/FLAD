@@ -46,18 +46,18 @@ from arguments import (
     ModelArguments,
     DataTrainingArguments,
     TargetDatasetArguments,
-    MTCLTrainingArguments
+    FLADTrainingArguments
 )
 from trainer import (
-    MTCLSeq2SeqTrainer,
-    BatchedMTCLTrainer,
-    Exp3BatchedMTCLTrainer,
-    UCB1BatchedMTCLTrainer
+    FLADSeq2SeqTrainer,
+    BatchedFLADTrainer,
+    Exp3BatchedFLADTrainer,
+    UCB1BatchedFLADTrainer
 )
 from data.data_utils import (
     DatasetWithTemplate,
-    MTCLWeightedIterableDataset,
-    MTCLWeightedMapDataset,
+    FLADWeightedIterableDataset,
+    FLADWeightedMapDataset,
     get_train_val_datasets,
     get_test_dataset
 )
@@ -101,7 +101,7 @@ def main():
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
 
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TargetDatasetArguments, MTCLTrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TargetDatasetArguments, FLADTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -227,13 +227,13 @@ def main():
                         for name in train_dataset_dict]
 
             if not training_args.gradient_directed:
-                train_dataset = MTCLWeightedIterableDataset(train_dataset_dict, weights=weights, seed=training_args.seed)
+                train_dataset = FLADWeightedIterableDataset(train_dataset_dict, weights=weights, seed=training_args.seed)
             # If calculating per-sample gradients, use Iterable dataset
-            elif training_args.mtcl_strategy == "samples":
-                train_dataset = MTCLWeightedIterableDataset(train_dataset_dict, weights=weights, seed=training_args.seed)
+            elif training_args.FLAD_strategy == "mixed":
+                train_dataset = FLADWeightedIterableDataset(train_dataset_dict, weights=weights, seed=training_args.seed)
             # If calculating per-batch gradients, use Map dataset
             else:
-                train_dataset = MTCLWeightedMapDataset(train_dataset_dict, weights)
+                train_dataset = FLADWeightedMapDataset(train_dataset_dict, weights)
                 target_dataset = DatasetWithTemplate(target_dataset, tokenizer, include_answer_choices=False)
 
         elif isinstance(train_dataset, Dataset):
@@ -283,9 +283,9 @@ def main():
         torch.cuda.empty_cache()
 
     # Initialize our Trainer
-    if training_args.gradient_directed and training_args.mtcl_strategy == "batched":
+    if training_args.gradient_directed and training_args.FLAD_strategy == "batched":
         if training_args.exp3:
-            trainer = Exp3BatchedMTCLTrainer(
+            trainer = Exp3BatchedFLADTrainer(
                 model=model,
                 args=training_args,
                 train_dataset=train_dataset if training_args.do_train else None,
@@ -300,7 +300,7 @@ def main():
                 target_dataset_args = target_dataset_args
             )
         elif training_args.ucb1:
-            trainer = UCB1BatchedMTCLTrainer(
+            trainer = UCB1BatchedFLADTrainer(
                 model=model,
                 args=training_args,
                 train_dataset=train_dataset if training_args.do_train else None,
@@ -315,7 +315,7 @@ def main():
                 target_dataset_args = target_dataset_args
             )
         else:
-            trainer = BatchedMTCLTrainer(
+            trainer = BatchedFLADTrainer(
                 model=model,
                 args=training_args,
                 train_dataset=train_dataset if training_args.do_train else None,
@@ -330,7 +330,7 @@ def main():
                 target_dataset_args = target_dataset_args
             )
     else:
-        trainer = MTCLSeq2SeqTrainer(
+        trainer = FLADSeq2SeqTrainer(
             model=model,
             args=training_args,
             train_dataset=train_dataset if training_args.do_train else None,
