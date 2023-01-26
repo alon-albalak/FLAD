@@ -33,12 +33,11 @@ from transformers import (
     AutoConfig,
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
-    HfArgumentParser,
     EarlyStoppingCallback,
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint
-from transformers.utils import check_min_version, is_offline_mode, send_example_telemetry
+from transformers.utils import check_min_version, is_offline_mode
 from transformers.utils.versions import require_version
 from datasets import Dataset
 
@@ -49,7 +48,7 @@ from arguments import (
     MTCLTrainingArguments
 )
 import argparse
-from trainer import MTCLSeq2SeqTrainer, BatchedMTCLTrainer, UCB1BatchedMTCLTrainer
+from trainer import MTCLSeq2SeqTrainer, UCB1BatchedMTCLTrainer
 from data.data_utils import (
     DatasetWithTemplate,
     MTCLWeightedIterableDataset,
@@ -267,8 +266,6 @@ def main(
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
-
-    # TODO - ALON: Haven't touched this yet
     if training_args.do_predict:
         logger.info("*** Predict ***")
 
@@ -320,20 +317,23 @@ if __name__ == "__main__":
     parser.add_argument("--train_strategy", type=str, default="auxiliary_and_target")
     parser.add_argument("--offload_grads", type=bool, default=False)
     parser.add_argument("--gradient_directed", type=bool, default=True)
-    parser.add_argument("--base_output_dir", type=str, default=None)#/share/edc/home/alon_albalak/MTCL/outputs
+    parser.add_argument("--base_output_dir", type=str, default=None)
     args = parser.parse_args()
 
     # model arguments
     patience=10
     max_steps=10000
+    eval_steps=100
+    save_steps=100
+    eval_delay=100
     if args.model == "google/t5-base-lm-adapt":
         model_name_or_path = "google/t5-base-lm-adapt"
         model_name = "T5_LM_base"
         per_device_train_batch_size=16
         per_device_eval_batch_size=128
         gradient_checkpointing = False
-        betas = [0.1]#, 0.25]
-        grad_accs = [16, 32]
+        betas = [0.1]
+        grad_accs = [2, 8]
         lrs = [3e-4, 1e-4]
     elif args.model == "google/t5-xl-lm-adapt":
         model_name_or_path = "google/t5-xl-lm-adapt"
@@ -341,8 +341,8 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        betas = [0.1]#, 0.25]
-        grad_accs = [16, 32]
+        betas = [0.1]
+        grad_accs = [16]
         lrs = [1e-4]
     elif args.model == "bigscience/T0_3B":
         model_name_or_path = "bigscience/T0_3B"
@@ -350,8 +350,8 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        betas = [0.1]#, 0.25]
-        grad_accs = [16, 32]
+        betas = [0.1]
+        grad_accs = [16]
         lrs = [1e-4]
     else:
         raise ValueError("Model not supported")
@@ -434,19 +434,13 @@ if __name__ == "__main__":
     del tmp_tensor
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    
+
+    count = 0
+    total = len(lrs)*len(betas)*len(grad_accs)
     for lr in lrs:
         for beta in betas:
             for grad_acc in grad_accs:
-                if grad_acc == 16:
-                    eval_steps=100
-                    save_steps=100
-                    eval_delay=100
-                elif grad_acc == 32:
-                    eval_steps=50
-                    save_steps=50
-                    eval_delay=50
-
+                print(f"*** Running experiment {count} of {total}")
                 if dataset_similarity_threshold is not None:
                     # add threshold to output dir
                     output_dir = base_output_dir.format(f"{loss_or_sample_name}_with_threshold", beta, grad_acc, lr, args.weight_initialization_samples)
@@ -460,18 +454,6 @@ if __name__ == "__main__":
                 if os.path.exists(result_file):
                     print(f"Skipping {output_dir} because results already exist")
                     continue
-
-                # See all possible arguments in src/transformers/training_args.py
-                # or by passing the --help flag to this script.
-                # We now keep distinct sets of args, for a cleaner separation of concerns.
-
-                # parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TargetDatasetArguments, MTCLTrainingArguments))
-                # if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-                #     # If we pass only one argument to the script and it's the path to a json file,
-                #     # let's parse it to get our arguments.
-                #     model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
-                # else:
-                #     model_args, data_args, target_dataset_args, training_args = parser.parse_args_into_dataclasses()
 
                 print(f"Outputting to: {output_dir}")
                 log_file = os.path.join(output_dir, "log.log")
@@ -540,7 +522,7 @@ if __name__ == "__main__":
                     f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
                     + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
                 )
-                # TODO - ALON: Log arguments of interest, not just training args
+                # Log arguments of interest
                 logger.info(training_args)
                 logger.info(data_args)
                 logger.info(target_dataset_args)
@@ -587,3 +569,5 @@ if __name__ == "__main__":
                 except Exception as e:
                     logger.error(e)
                     pass
+                
+                count += 1

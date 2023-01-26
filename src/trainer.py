@@ -221,7 +221,7 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
 
         train_dataset = self.train_dataset
         
-        # ALON: Get custom collate_fn
+        # Get custom collate_fn
         data_collator = MTCLDataCollator(
             tokenizer=self.tokenizer,
             model=self.model,
@@ -290,7 +290,7 @@ class MTCLSeq2SeqTrainer(Seq2SeqTrainer):
             raise ValueError("Trainer: evaluation requires an eval_dataset.")
         eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
 
-        # ALON: Get custom collate_fn
+        # Get custom collate_fn
         data_collator = MTCLDataCollator(
             tokenizer=self.tokenizer,
             model=self.model,
@@ -1211,7 +1211,7 @@ class BatchedMTCLTrainer(MTCLSeq2SeqTrainer):
         if target_dataset is None:
             raise ValueError("Trainer: Gradient directed training requires a target_dataset.")
         
-        # ALON: Get custom collate_fn
+        # Get custom collate_fn
         data_collator = MTCLDataCollator(
             tokenizer=self.tokenizer,
             model=self.model,

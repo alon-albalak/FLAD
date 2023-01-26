@@ -131,7 +131,7 @@ def main():
         f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
         + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
     )
-    # TODO - ALON: Log arguments of interest, not just training args
+    # Log arguments of interest
     logger.info(training_args)
     logger.info(data_args)
     logger.info(target_dataset_args)
@@ -157,7 +157,7 @@ def main():
     # pre-allocate memory
     tmp_tensor = torch.rand([100000,100000], device=training_args.device)
 
-    # TODO - ALON: If needed, implement training with auxiliary data only
+    # TODO: If needed, implement training with auxiliary data only
     #       Requires changing the evaluation collator, evaluation metric, 
     assert(training_args.train_strategy != "auxiliary_only"), "Validation with auxiliary tasks is not implemented"
 
@@ -371,8 +371,6 @@ def main():
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
-
-    # TODO - ALON: Haven't touched this yet
     if training_args.do_predict:
         logger.info("*** Predict ***")
 

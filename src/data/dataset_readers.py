@@ -12,17 +12,6 @@ logger.setLevel(20)
 
 CACHE_DIR=os.getenv("HF_HOME", default=None)
 
-# TESTING NEW DATASETS
-CONFIRMED_DATASETS=[
-    ("acronym_identification",None),
-    ("ade_corpus_v2","Ade_corpus_v2_classification"), # adverse drug reaction
-    ('ade_corpus_v2', 'Ade_corpus_v2_drug_ade_relation'),
-    ('ade_corpus_v2', 'Ade_corpus_v2_drug_dosage_relation'),
-    ('aeslc', None), # generate email title based on body
-
-]
-# END TESTING NEW DATASETS
-
 TOMixture = [
     ("glue","mrpc"), # Paraphrase identification
     ("glue","qqp"),
@@ -182,6 +171,20 @@ TEST_SET_SHOTS = {
     "wsc": 32
 }
 
+RAFT_DATASETS=[
+    "ade_corpus_v2",
+    "banking_77",
+    "terms_of_service",
+    "tai_safety_research",
+    "neurips_impact_statement_risks",
+    "overruling",
+    "systematic_review_inclusion",
+    "one_stop_english",
+    "tweet_eval_hate",
+    "twitter_complaints",
+    "semiconductor_org_types",
+]
+
 def get_dataset_name(name: str, subset: str):
     if subset is not None:
         canonized_name = f"{name}/{subset}"
@@ -204,7 +207,8 @@ def get_datasets(
         return get_P3MixtureDatasets(split, max_samples, return_as_dict)
     elif dataset_or_mixture_name in EvalMixture:
         return get_eval_dataset(dataset_or_mixture_name, split, target_dataset_args, return_as_dict)
-
+    elif dataset_or_mixture_name in RAFT_DATASETS:
+        return get_raft_dataset(dataset_or_mixture_name, split, target_dataset_args, return_as_dict)
     raise ValueError(f"Unknown dataset or mixture: {dataset_or_mixture_name}")
 
 def get_T0MixtureDatasets(split, max_samples=None, return_as_dict=True):
@@ -302,6 +306,19 @@ def get_eval_dataset(name, split, target_dataset_args, return_as_dict=False):
         assert(target_dataset_args.num_shot == TEST_SET_SHOTS[name])
         dataset = reader.read_few_shot_dataset(name, target_dataset_args.num_shot,
                                     target_dataset_args.few_shot_random_seed, split)
+    if isinstance(dataset, list):
+        dataset = Dataset.from_list(dataset)
+    templates = reader.templates
+    dataset.templates = templates
+    dataset.name = get_dataset_name(name, None)
+    if return_as_dict:
+        return {get_dataset_name(name, None): dataset}
+    else:
+        return dataset
+
+def get_raft_dataset(name, split, target_dataset_args, return_as_dict=False):
+    reader = RaftReader(name, target_dataset_args)
+    dataset = reader.read_orig_dataset(split)
     if isinstance(dataset, list):
         dataset = Dataset.from_list(dataset)
     templates = reader.templates
@@ -596,154 +613,18 @@ class CBReader(BaseDatasetReader):
     def __init__(self, target_dataset_args):
         super().__init__(dataset_stash=("super_glue", "cb"))
 
-
-# class T0MixtureReader(object):
-#     """
-#     DatasetReader is responsible for reading and processing dataset
-#     """
-
-#     def __init__(self, config):
-#         """
-#         :param config:
-#         """
-#         self.config = config
-#         datatset_subset_tuple = Tuple[str, Optional[str]]
-#         t0_train: Dict[str, List[datatset_subset_tuple]] = {
-#             "BASE": [],
-#             # GPT3 evaluation set
-#             "GPT_EVAL": [],
-#             # SuperGLUE (except RTE and CB)
-#             "SGLUE": [],
-#         }
-#         t0_eval: Dict[str, List[datatset_subset_tuple]] = {"BASE": [], "BIAS_FAIRNESS": []}
-#         gsheet: Dict[datatset_subset_tuple, Dict] = {}
-#         if config.debugging:
-#             experiment_path = pkg_resources.resource_filename(__name__, "debug_datasets.csv")
-#         else:
-#             experiment_path = pkg_resources.resource_filename(__name__, "datasets.csv")
-
-#         with open(experiment_path) as exp_file:
-#             reader = csv.DictReader(exp_file)
-#             for row in reader:
-#                 if row["subset"] == "":
-#                     row["subset"] = None  # to match promptsource.Template object
-#                 dataset_subset = (row["HF_name"], row["subset"])
-#                 if row["do_train"] != "":
-#                     do_train_source = row["do_train"]
-#                     # sanity checks
-#                     if do_train_source == "SGLUE":
-#                         assert dataset_subset[0] == "super_glue"
-#                     t0_train[do_train_source].append(dataset_subset)
-#                 if row["do_eval"] != "":
-#                     do_eval_source = row["do_eval"]
-#                     # sanity checks
-#                     if do_eval_source == "BIAS_FAIRNESS":
-#                         assert row["task_by_convention"] == "bias_and_fairness"
-#                     t0_eval[do_eval_source].append(dataset_subset)
-#                 gsheet[dataset_subset] = row
-
-#         all_datasets = sum(t0_train.values(), []) + sum(t0_eval.values(), [])
-#         all_templates = templates.TemplateCollection()
-#         all_templates.remove("anli")
-
-#         # 3 stages of training/ablation: D4 -> GPT -> SuperGLUE
-#         t0_train_mixture: Dict[str, List[str]] = {key: [] for key in t0_train}
-#         t0_eval_mixture: Dict[str, List[str]] = {key: [] for key in t0_eval}
-#         mixture_cap: Dict[str, int] = {}
-#         single_original_task: Dict[Tuple[str, str], str] = {}
-#         all_original_tasks: List[str] = []
-#         added_tasks: List[Tuple[str, str, str]] = []
-
-#         def get_task_name(dataset_name, subset_name, template_name):
-#             # Clean the text according to allowed characters for a task name
-#             task_name = dataset_name + (f"_{subset_name}_" if subset_name is not None else "_") + template_name
-#             return re.sub(r"[^\w\d\._]+", "_", task_name)
-
-#         for dataset_name, subset_name in all_templates.keys:
-
-#             if (dataset_name, subset_name) not in all_datasets:
-#                 all_templates.remove(dataset_name, subset_name)
-#                 continue
-#             dataset = all_templates.get_dataset(dataset_name, subset_name)
-#             num_templates = len(dataset.all_template_names)
-#             train_size = gsheet[(dataset_name, subset_name)]["train_size"]
-#             if train_size == "":
-#                 train_size = 0
-#             else:
-#                 train_size = int(train_size)
-#             if train_size > MAX_EXAMPLES_PER_DATASET // num_templates:
-#                 cap = MAX_EXAMPLES_PER_DATASET // num_templates
-#             else:
-#                 cap = train_size
-#             for template_name in dataset.all_template_names:
-#                 added_tasks.append((dataset_name, subset_name, template_name))
-
-#                 template = dataset[template_name]
-
-#                 task_name = get_task_name(dataset_name, subset_name, template_name)
-
-#                 if (dataset_name, subset_name) not in single_original_task and template.metadata.original_task:
-#                     single_original_task[(dataset_name, subset_name)] = task_name
-
-#                 if template.metadata.original_task:
-#                     all_original_tasks.append(task_name)
-
-#                 # Check that the dataset_subset_tuple is in t0_train
-#                 for key, dataset_subset_tuples in t0_train.items():
-#                     if (dataset_name, subset_name) in dataset_subset_tuples:
-#                         t0_train_mixture[key].append(task_name)
-#                         mixture_cap[task_name] = cap
-
-#                 # Check that the dataset_subset_tuple is in t0_eval
-#                 if (dataset_name, subset_name) in t0_eval["BASE"]:
-#                     if template.metadata.original_task:
-#                         t0_eval_mixture["BASE"].append(task_name)
-#                     # TODO use template.metadata.answer_choices here for rank eval
-#                 if (dataset_name, subset_name) in t0_eval["BIAS_FAIRNESS"]:
-#                     t0_eval_mixture["BIAS_FAIRNESS"].append(task_name)
-
-#         self.t0_base_tasks = []
-#         self.t0_base_templates = []
-#         for (dataset_name, subset_name, template_name) in added_tasks:
-#             task_name = get_task_name(dataset_name, subset_name, template_name)
-#             if task_name in t0_train_mixture["BASE"]:
-#                 if task_name not in TASK_BLACKLIST:
-#                     self.t0_base_tasks.append((dataset_name, subset_name, template_name, mixture_cap[task_name]))
-#                     template = all_templates.get_dataset(dataset_name, subset_name)[template_name]
-#                     self.t0_base_templates.append(template)
-
-#     def get_template(self):
-#         return self.t0_base_templates
-
-#     def read_orig_dataset(self, split):
-#         """
-#         Read the original dataset
-
-#         :param split: split of data
-#         """
-#         orig_data = []
-#         for (dataset_name, subset_name, template_name, cap) in self.t0_base_tasks:
-#             if split == "train":
-#                 split_num = f"{split}[0:{cap}]"
-#             else:
-#                 split_num = split
-
-#             orig_data.append(load_dataset(dataset_name, subset_name, split=split_num))
-#         return orig_data
-
-
-# TODO - ALON: Adjust RAFT data to match data-loading strategy
+# TODO: Adjust RAFT data to match data-loading strategy
 class RaftTemplate(object):
-    def __init__(self, config, answer_choices):
+    def __init__(self, dataset_name, target_dataset_args, answer_choices):
         with open(os.path.join(os.path.dirname(__file__), "raft_prompt_construction_settings.jsonl")) as f:
             data = [json.loads(line) for line in f]
             FIELD_ORDERING = data[0]
             INSTRUCTIONS = data[1]
-        self.dataset_name = config.dataset
+        self.dataset_name = dataset_name
         self.answer_choices = answer_choices
         self.instruction = INSTRUCTIONS[self.dataset_name]
         self.fields = FIELD_ORDERING[self.dataset_name]
-        self.raft_labels_in_input_string = config.raft_labels_in_input_string
+        self.raft_labels_in_input_string = target_dataset_args.raft_labels_in_input_string
 
     def apply(self, example):
         if self.raft_labels_in_input_string == "comma":
@@ -778,21 +659,20 @@ class RaftTemplate(object):
 
 
 class RaftReader(object):
-    def __init__(self, config):
-        self.config = config
-        self.dataset_name = config.dataset
-        self.orig_data = load_dataset("ought/raft", name=self.dataset_name, cache_dir=CACHE_DIR)
+    def __init__(self, dataset_name, target_dataset_args):
+        self.target_dataset_args = target_dataset_args
+        self.orig_data = load_dataset("ought/raft", name=dataset_name, cache_dir=CACHE_DIR)
         self.answer_choices = self.orig_data["train"].features["Label"].names[1:]
-        if self.config.dataset == "banking_77" and config.cleaned_answer_choices_b77:
+        if dataset_name == "banking_77" and target_dataset_args.cleaned_answer_choices_b77:
             self.answer_choices = [answer.replace("_", " ").replace(". ", " ") for answer in self.answer_choices]
 
-        self.template = RaftTemplate(config, self.answer_choices)
+        self.templates = [RaftTemplate(dataset_name, target_dataset_args, self.answer_choices)]
 
-    def get_train_template(self):
-        return self.template
+    # def get_train_template(self):
+    #     return self.template
 
-    def get_eval_template(self):
-        return self.template
+    # def get_eval_template(self):
+    #     return self.template
 
     def read_orig_dataset(self, split):
         """
@@ -800,16 +680,25 @@ class RaftReader(object):
 
         :param split: split of data
         """
-        if self.config.raft_cross_validation:
+        if self.target_dataset_args.raft_cross_validation:
             orig_data = [example for example in self.orig_data["train"]]
+            if self.target_dataset_args.few_shot_random_seed:
+                np.random.seed(self.target_dataset_args.few_shot_random_seed)
+            else:
+                np.random.seed(42)
+            np.random.shuffle(orig_data)
+            # if split == "train":
+            #     orig_data = (
+            #         orig_data[: self.config.raft_validation_start] + orig_data[self.config.raft_validation_start + 10 :]
+            #     )
+            #     assert len(orig_data) == 40
+            # elif split == "validation":
+            #     orig_data = orig_data[self.config.raft_validation_start : self.config.raft_validation_start + 10]
+            #     assert len(orig_data) == 10
             if split == "train":
-                orig_data = (
-                    orig_data[: self.config.raft_validation_start] + orig_data[self.config.raft_validation_start + 10 :]
-                )
-                assert len(orig_data) == 40
+                orig_data = orig_data[:25]
             elif split == "validation":
-                orig_data = orig_data[self.config.raft_validation_start : self.config.raft_validation_start + 10]
-                assert len(orig_data) == 10
+                orig_data = orig_data[25:]
         else:
             if split == "validation":
                 split = "test"

@@ -22,7 +22,6 @@ for SEED in ${SEEDS[@]}; do
                 --target_dataset $TARGET_DATASET \
                 --aux_dataset $AUX_DATASET \
                 --model $MODEL \
-                --base_output_dir "/share/edc/home/alon_albalak/MTCL/outputs" \
                 > $OUTPUT_DIR/log.log 2> $OUTPUT_DIR/err.log
 
         done

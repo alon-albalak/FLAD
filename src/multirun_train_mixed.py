@@ -23,23 +23,19 @@ import os
 import sys
 import json
 
-from datasets.utils.logging import set_verbosity
 import nltk  # Here to have a nice missing dependency error message early on
 
 import evaluate
-import transformers
 from filelock import FileLock
 import torch
 from transformers import (
     AutoConfig,
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
-    HfArgumentParser,
     EarlyStoppingCallback,
     set_seed,
 )
-from transformers.trainer_utils import get_last_checkpoint
-from transformers.utils import check_min_version, is_offline_mode, send_example_telemetry
+from transformers.utils import check_min_version, is_offline_mode
 from transformers.utils.versions import require_version
 from datasets import Dataset
 
@@ -288,8 +284,6 @@ def main(
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
-
-    # TODO - ALON: Haven't touched this yet
     if training_args.do_predict:
         logger.info("*** Predict ***")
 
@@ -335,62 +329,50 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int)
     parser.add_argument("--target_dataset", type=str)
-    # parser.add_argument("--loss_or_sample", type=str)
     parser.add_argument("--aux_dataset", type=str)
     parser.add_argument("--model", type=str, default="google/t5-base-lm-adapt")
     parser.add_argument("--weight_initialization_samples", type=int, default=0)
     parser.add_argument("--train_strategy", type=str, default="auxiliary_and_target")
     parser.add_argument("--gradient_directed", type=bool, default=False)
-    parser.add_argument("--base_output_dir", type=str, default=None)#/share/edc/home/alon_albalak/MTCL/outputs
+    parser.add_argument("--base_output_dir", type=str, default=None)
     args = parser.parse_args()
 
     # model arguments
+    patience=10
+    max_steps=10000
+    eval_steps=100
+    save_steps=100
+    eval_delay=100
     if args.model == "google/t5-base-lm-adapt":    
         model_name_or_path = "google/t5-base-lm-adapt"
         model_name = "T5_LM_base"
         per_device_train_batch_size=16
         per_device_eval_batch_size=128
-        gradient_accumulation_step_sizes = [4]
+        gradient_accumulation_step_sizes = [2, 8]
         lrs = [3e-4, 1e-4]
         gradient_checkpointing=False
-        max_steps=10000
-        eval_steps=100
-        save_steps=100
-        patience=5
-        eval_delay=100
     elif args.model == "google/t5-xl-lm-adapt":
         model_name_or_path = "google/t5-xl-lm-adapt"
         model_name = "T5_LM_3B"
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
-        gradient_accumulation_step_sizes = [8]
+        gradient_accumulation_step_sizes = [4, 16]
         lrs = [1e-4]
         gradient_checkpointing=True
-        max_steps=10000
-        eval_steps=100
-        save_steps=100
-        patience=5
-        eval_delay=100
     elif args.model == "bigscience/T0_3B":
         model_name_or_path = "bigscience/T0_3B"
         model_name = "T0_3B"
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
-        gradient_accumulation_step_sizes = [8]
+        gradient_accumulation_step_sizes = [4, 16]
         lrs = [1e-4]
         gradient_checkpointing = True
-        max_steps=10000
-        eval_steps=100
-        save_steps=100
-        patience=5
-        eval_delay=100
     else:
         raise ValueError("model not supported")
 
     model_args = ModelArguments(model_name_or_path=model_name_or_path)
 
     # data arguments
-    # aux_dataset = "P3"
     data_args = DataTrainingArguments(
             auxiliary_dataset=args.aux_dataset,
             target_dataset=args.target_dataset,
@@ -401,24 +383,6 @@ if __name__ == "__main__":
             num_shot=TEST_SET_SHOTS[args.target_dataset],
             few_shot_random_seed=args.seed,
             )
-    
-    # method specific arguments
-    # if args.loss_or_sample == "loss":
-    #     loss_scaling=True
-    #     dataset_similarity_threshold=0.0
-    #     loss_or_sample_name = "loss_scale_with_threshold"
-    #     weighted_batch_sampling=False
-    # else:
-    #     loss_scaling=False
-    #     dataset_similarity_threshold=None
-    #     loss_or_sample_name = "weighted_batch"
-    #     weighted_batch_sampling=True
-
-    # method arguments
-    # per_device_train_batch_size=16
-    # per_device_eval_batch_size=128
-    # gradient_accumulation_steps=1
-    # gradient_checkpointing=False
     if args.weight_initialization_samples == 0:
         method = "mixed_train"
     else:
@@ -431,13 +395,8 @@ if __name__ == "__main__":
             f"{method}/{args.seed}/{args.target_dataset}/"+"{}/{}/{}"
     overwrite_output_dir=True
     predict_with_generate=True
-    # max_steps=10000
     evaluation_strategy="steps"
-    # eval_steps=50
     save_total_limit=1
-    # save_steps=50
-    # patience=10
-    # eval_delay=50
     load_best_model_at_end=True
     metric_for_best_model="accuracy"
     logging_strategy="steps"
@@ -448,9 +407,6 @@ if __name__ == "__main__":
     optim="adafactor"
     warmup_ratio=0.01
     lr_scheduler_type="constant_with_warmup"
-    # gradient_directed=False
-    # mtcl_strategy="batched"
-    # similarity_strategy="lm_head"
 
     # data loading
     # Set seed before initializing model.
@@ -481,7 +437,7 @@ if __name__ == "__main__":
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    relative_sampling_ratios = [10, 5]
+    relative_sampling_ratios = [10, 5, 1]
     
     # iterate over relative_sampling_ratios and lrs
     count = 1
@@ -537,13 +493,7 @@ if __name__ == "__main__":
                     lr_scheduler_type=lr_scheduler_type,
                     gradient_directed=args.gradient_directed,
                     relative_sampling_from_target = relative_sampling_ratio,
-                    # mtcl_strategy=mtcl_strategy,
-                    # similarity_strategy=similarity_strategy,
-                    # similarity_beta=beta,
-                    # loss_scaling=loss_scaling,
-                    # weighted_batch_sampling=weighted_batch_sampling,
                     weight_initialization_samples=args.weight_initialization_samples,
-                    # dataset_similarity_threshold=dataset_similarity_threshold,
                     tf32=True
                 )
 
@@ -552,7 +502,7 @@ if __name__ == "__main__":
                     f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
                     + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
                 )
-                # TODO - ALON: Log arguments of interest, not just training args
+                # Log arguments of interest
                 logger.info(training_args)
                 logger.info(data_args)
                 logger.info(target_dataset_args)

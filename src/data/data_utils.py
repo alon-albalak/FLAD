@@ -96,7 +96,22 @@ class DatasetWithTemplate(torch.utils.data.dataset.Dataset):
                 target_str = "<NO LABEL>"
             template_checks += 1
 
-        input_ids = self.tokenizer(input_str, return_tensors="pt", truncation=True).input_ids.squeeze(0)
+        if isinstance(input_str, list):
+            input_ids = torch.cat(
+                [
+                    self.tokenizer(
+                        input_field, return_tensors="pt", truncation=True, add_special_tokens=False
+                    ).input_ids.squeeze(0)
+                    for input_field in input_str[:-1]
+                ]
+                + [
+                    self.tokenizer(
+                        input_str[-1], return_tensors="pt", truncation=True, add_special_tokens=self.add_special_tokens
+                    ).input_ids.squeeze(0)
+                ]
+            )
+        else:
+            input_ids = self.tokenizer(input_str, return_tensors="pt", truncation=True).input_ids.squeeze(0)
         target_ids = self.tokenizer(target_str, return_tensors="pt", truncation=True).input_ids.squeeze(0)
         return self.dataset.name, input_ids, target_ids
 
@@ -280,7 +295,7 @@ class MTCLWeightedBatchSampler(MTCLBatchSampler):
         assert(isinstance(dataset, torch.utils.data.dataset.ConcatDataset))
         cur_idx = 0
         for size, d in zip(dataset.cumulative_sizes, dataset.datasets):
-            # TODO - ALON: if needed to work with multiple workers, split up idxs here by worker number
+            # TODO: if needed to work with multiple workers, split up idxs here by worker number
 
             # if using batch sampler in distributed setting
             #   need to use different offsets and artificially set dataset size
@@ -429,7 +444,7 @@ class MTCLDistributedBatchSampler(
         self.rank = rank
         self.epoch = 0
         self.dataset = self._split_dataset(dataset)
-        self.num_samples = math.ceil(len(dataset) / self.num_replicas)  # type: ignore[arg-type]
+        self.num_samples = math.ceil(len(dataset) / self.num_replicas)
         self.total_size = self.num_samples * self.num_replicas
         self.shuffle = shuffle
         self.seed = seed
@@ -586,7 +601,7 @@ class MTCLDataCollator:
             # )  # [bs, max_seq_len]
             # decoder_attention_mask = (decoder_input_ids == decoder_input_ids).float()
             
-            # ALON: HF Style
+            # HF Style
             if (
                 target_ids is not None
                 and self.model is not None

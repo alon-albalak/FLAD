@@ -9,6 +9,7 @@ AUX_DATASETS=( "T0Mixture" "P3" )
 for SEED in ${SEEDS[@]}; do
     for AUX_DATASET in ${AUX_DATASETS[@]}; do
         for MODEL in ${MODELS[@]}; do
+        
             OUTPUT_DIR="outputs/train_logs/exp3/$SEED/$MODEL/${AUX_DATASET}/${TARGET_DATASET}/${WEIGHT_INIT_SAMPLES}"
             mkdir -p $OUTPUT_DIR
 
