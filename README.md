@@ -52,5 +52,3 @@ python3 src/multirun_create_weight_inits.py --target_dataset $TARGET_DATASET --a
 ```
 
 NOTE: This script will by default pre-compute gradients with base- and XL-sized T5 models, and T0-3B. To change this, edit the variable ```MODELS``` found on lines 83-88 of ```src/multirun_create_weight_inits.py```.
-
-This process will take
