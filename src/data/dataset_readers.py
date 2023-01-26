@@ -244,7 +244,7 @@ def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
     for k, v in TC.datasets_templates.items():
         tmp_split = split
         name, subset = k
-        logger.info(f"ALON INFO: ({name},{subset})")
+        logger.info(f"Loading ({name},{subset})")
 
         # Skip evaluation datasets
         if (name in EvalMixture) or k in EvalMixtureFullNames:
@@ -261,7 +261,7 @@ def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
             try:
                 dataset = load_dataset(name, subset, split=f"{tmp_split}[:{max_samples}]", cache_dir=CACHE_DIR)
             except:
-                logger.warn(f"ALON WARN: failed to load max samples of {k}. Loading full dataset.")
+                logger.warn(f"Failed to load max samples of {k}. Loading full dataset.")
                 dataset = load_dataset(name, subset, split=tmp_split, cache_dir=CACHE_DIR)
                 dataset = Dataset.from_dict(dataset[:max_samples])
 
