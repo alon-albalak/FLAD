@@ -247,7 +247,6 @@ def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
     for k, v in TC.datasets_templates.items():
         tmp_split = split
         name, subset = k
-        logger.info(f"Loading ({name},{subset})")
 
         # Skip evaluation datasets
         if (name in EvalMixture) or k in EvalMixtureFullNames:
@@ -259,6 +258,8 @@ def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
 
         if k in P3Mixture_split_map:
             tmp_split = P3Mixture_split_map[k]
+
+        logger.info(f"Loading ({name},{subset})")
 
         if max_samples:
             try:
