@@ -38,7 +38,7 @@ bash all_mixed.sh $GPU $TARGET_DATASET
 ```
   </details>
   
-<details><summary>Exploit-only baseline></summary>
+<details><summary>Exploit-only baseline</summary>
     
 ```bash
 GPU=0
