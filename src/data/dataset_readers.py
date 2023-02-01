@@ -117,7 +117,6 @@ P3SkippedDatasets=[
     ('jigsaw_unintended_bias', None), # requires manual download
     ('asnq', None), # download is broken
     ("coqa", None), # temporarily not working
-    ('emotion', None), # Not working
 ]
 
 EvalMixture = [

@@ -159,7 +159,7 @@ def main(
                 if args.weight_initialization_samples > 0:
                     model_name = model_args.model_name_or_path.replace("/","-")
                     # save path for weights
-                    weight_save_path = os.path.join(os.path.dirname(__file__),"initial_similarities")
+                    weight_save_path = os.path.join(training_args.precomputed_weight_grad_save_dir,"initial_similarities")
                     weight_save_file = os.path.join(weight_save_path,
                         f"{args.weight_initialization_samples}_{data_args.target_dataset}_"
                         f"{data_args.auxiliary_dataset}_{model_name}_{target_dataset_args.few_shot_random_seed}.json"
@@ -335,6 +335,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_strategy", type=str, default="auxiliary_and_target")
     parser.add_argument("--gradient_directed", type=bool, default=False)
     parser.add_argument("--base_output_dir", type=str, default=None)
+    parser.add_argument("--precomputed_weight_grad_save_dir", type=str, default=None)
     args = parser.parse_args()
 
     # model arguments
@@ -494,6 +495,8 @@ if __name__ == "__main__":
                     gradient_directed=args.gradient_directed,
                     relative_sampling_from_target = relative_sampling_ratio,
                     weight_initialization_samples=args.weight_initialization_samples,
+                    precomputed_weight_save_dir=args.precomputed_weight_grad_save_dir,
+                    precomputed_grad_save_dir=args.precomputed_weight_grad_save_dir,
                     tf32=True
                 )
 

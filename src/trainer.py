@@ -1321,7 +1321,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         model_name = model.name_or_path.replace("/","-")
 
         # save path for weights
-        weight_save_path = os.path.join(os.path.dirname(__file__),"initial_similarities")
+        weight_save_path = os.path.join(self.args.precomputed_weight_save_dir,"initial_similarities")
         if not os.path.exists(weight_save_path):
             os.makedirs(weight_save_path, exist_ok=True)
         weight_save_file = os.path.join(weight_save_path,
@@ -1330,7 +1330,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             )
 
         # save path for gradients
-        grad_save_path = os.path.join(os.path.dirname(__file__),"initial_gradients",
+        grad_save_path = os.path.join(self.args.precomputed_grad_save_dir,"initial_gradients",
             f"{self.args.weight_initialization_samples}_{self.data_args.auxiliary_dataset}_"
             f"{model_name}"
         )

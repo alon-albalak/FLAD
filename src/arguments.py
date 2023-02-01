@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
@@ -253,20 +253,23 @@ class TargetDatasetArguments:
 class FLADTrainingArguments(Seq2SeqTrainingArguments):
     train_strategy: Union[TrainStrategy, str] = field(
         default="auxiliary_and_target",
-        metadata={"help": "The training strategy to use. Options are auxiliary_only, auxiliary_and_target, target_only."
+        metadata={"help": "The training strategy to use, determines which data will be trained on. \
+            Options are auxiliary_only, auxiliary_and_target, target_only."
         },
     )
     gradient_directed: Optional[bool] = field(
         default=False,
         metadata={
             "help":
-            "Option to use gradients to determine auxiliary dataset sampling when using auxiliary_and_target train_strategy."
+            "Option to use gradients to determine auxiliary dataset \
+                sampling when using auxiliary_and_target train_strategy."
             }
     )
     FLAD_strategy: Optional[str] = field(
         default="batched",
         metadata={
-            "help": "Options are 'batched' or 'mixed'"
+            "help": "Determines whether batches are single-dataset or mixed. \
+                Options are 'batched' or 'mixed'."
         }
     )
     loss_scaling: Optional[bool] = field(
@@ -288,10 +291,23 @@ class FLADTrainingArguments(Seq2SeqTrainingArguments):
                 Defaults to uniform weight distribution when 0."
         }
     )
+    precomputed_weight_save_dir: Optional[str] = field(
+        default=os.path.dirname(__file__),
+        metadata={
+            "help": "Path to save precomputed weights to."
+        }
+    )
+    precomputed_grad_save_dir: Optional[str] = field(
+        default=os.path.dirname(__file__),
+        metadata={
+            "help": "Path to save precomputed gradients to."
+        }
+    )
     dataset_similarity_threshold: Optional[float] = field(
         default=None,
         metadata={
-            "help": "Similarity threshold (between -1 and 1) under which datasets will no longer be sampled"
+            "help": "Similarity threshold (between -1 and 1) under \
+                which datasets will no longer be sampled"
         }
     )
     length_norm: Optional[int] = field(
@@ -303,13 +319,14 @@ class FLADTrainingArguments(Seq2SeqTrainingArguments):
     patience: Optional[int] = field(
         default=None,
         metadata={
-            "help": "Stop training when the metric specified for `metric_for_best_model` worsend for `patience` number of evaluation calls."
+            "help": "Stop training when the metric specified for \
+                `metric_for_best_model` worsend for `patience` number of evaluation calls."
         }
     )
     log_samples_per_dataset: Optional[bool] = field(
         default=False,
         metadata={
-            "help": "Whether to log the number of samples seen per dataset"
+            "help": "Flag to log the number of samples seen per dataset"
         }
     )
     relative_sampling_from_target: Optional[float] = field(

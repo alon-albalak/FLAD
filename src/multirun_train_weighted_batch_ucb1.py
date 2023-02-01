@@ -318,6 +318,7 @@ if __name__ == "__main__":
     parser.add_argument("--offload_grads", type=bool, default=False)
     parser.add_argument("--gradient_directed", type=bool, default=True)
     parser.add_argument("--base_output_dir", type=str, default=None)
+    parser.add_argument("--precomputed_weight_grad_save_dir", type=str, default=None)
     args = parser.parse_args()
 
     # model arguments
@@ -499,6 +500,8 @@ if __name__ == "__main__":
                     loss_scaling=loss_scaling,
                     weighted_batch_sampling=weighted_batch_sampling,
                     weight_initialization_samples=args.weight_initialization_samples,
+                    precomputed_weight_save_dir=args.precomputed_weight_grad_save_dir,
+                    precomputed_grad_save_dir=args.precomputed_weight_grad_save_dir,
                     dataset_similarity_threshold=dataset_similarity_threshold,
                     offload_grads=args.offload_grads,
                     tf32=True,
