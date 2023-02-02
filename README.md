@@ -76,7 +76,7 @@ If you wish to use UCB1, you will need to pre-compute gradient alignments. The t
   </details>
   
   
-Note: If you plan to run many experiments, it can be useful to pre-compute gradients and gradient alignments.
+Note: If you plan to run many experiments with UCB1 or Exploit-only, it can be useful to pre-compute gradients and gradient alignments.
 
 <details><summary>To pre-compute gradient alignments</summary>
   
@@ -88,9 +88,22 @@ AUXILIARY_DATASET='P3'
 python3 src/multirun_create_weight_inits.py --target_dataset $TARGET_DATASET --auxiliary_dataset $AUXILIARY_DATASET
 ```
 
-NOTE: This script will by default pre-compute gradients with base- and XL-sized T5 models, and T0-3B. To change this, edit the variable `MODELS` found on lines 83-88 of `src/multirun_create_weight_inits.py`.
+***NOTE***: This script will by default pre-compute gradients with base- and XL-sized T5 models, and T0-3B. To change this, edit the variable `MODELS` found on lines 83-88 of `src/multirun_create_weight_inits.py`.
   
   </details>
 
 ### Attribution
 The data loading and formatting code is based on [T-Few](https://github.com/r-three/t-few).
+
+## How to Cite
+If you extend or use this work, please cite the [paper](https://arxiv.org/abs/2302.00674) where it was introduced:
+```
+@misc{albalak2023improving,
+      title={Improving Few-Shot Generalization by Exploring and Exploiting Auxiliary Data}, 
+      author={Alon Albalak and Colin Raffel and William Yang Wang},
+      year={2023},
+      eprint={2302.00674},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
+}
+```
