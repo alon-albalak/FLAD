@@ -4,7 +4,7 @@
 
 Few-shot learning with auxiliary data (**FLAD**) assumes access to auxiliary labeled data during learning to improve a model's few-shot generalization.
 <br>
-This repository contains code to use two FLAD methods (EXP3-FLAD and UCB1-FLAD) on datasets from [P3](https://github.com/bigscience-workshop/promptsource) using models from the [HuggingFace Model Hub](https://huggingface.co/models) based on the [T5 architecture](https://github.com/google-research/text-to-text-transfer-transformer) (including LM adapted T5, T0).
+This repository contains code to use two FLAD methods (EXP3-FLAD and UCB1-FLAD) on datasets from [P3](https://github.com/bigscience-workshop/promptsource) using models from the [Hugging Face Model Hub](https://huggingface.co/models) based on the [T5 architecture](https://github.com/google-research/text-to-text-transfer-transformer) (including LM adapted T5, T0).
 <br>
 This repository is set up to be easily adaptable to new models (by altering `src/trainer.py`) and datasets (by altering `src/data/datareaders.py`).
 
