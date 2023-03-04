@@ -77,11 +77,20 @@ if is_sagemaker_mp_enabled():
 
 class EvalLoopOutput(NamedTuple):
     predictions: Union[np.ndarray, Tuple[np.ndarray]]
+    string_predictions: Optional[Union[List[str], Tuple[List[str]]]]
     label_ids: Optional[Union[np.ndarray, Tuple[np.ndarray]]]
     score_candidates: Optional[Union[np.ndarray, Tuple[np.ndarray]]]
     score_gts: Optional[Union[np.ndarray, Tuple[np.ndarray]]]
     metrics: Optional[Dict[str, float]]
     num_samples: Optional[int]
+    idxs: Optional[Union[np.ndarray, Tuple[np.ndarray]]]
+
+class PredictionOutput(NamedTuple):
+    predictions: Union[np.ndarray, Tuple[np.ndarray]]
+    string_predictions: Optional[Union[List[str], Tuple[List[str]]]]
+    label_ids: Optional[Union[np.ndarray, Tuple[np.ndarray]]]
+    metrics: Optional[Dict[str, float]]
+    idxs: Optional[Union[np.ndarray, Tuple[np.ndarray]]]
 
 class FLADSeq2SeqTrainer(Seq2SeqTrainer):
     def compute_loss(
@@ -332,6 +341,9 @@ class FLADSeq2SeqTrainer(Seq2SeqTrainer):
             pin_memory=self.args.dataloader_pin_memory,
         )
 
+    def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
+        return self.get_eval_dataloader(test_dataset)
+
     def prediction_step(
         self,
         model: torch.nn.Module,
@@ -412,6 +424,13 @@ class FLADSeq2SeqTrainer(Seq2SeqTrainer):
         Works both with or without labels.
         """
         args = self.args
+
+        if hasattr(dataloader.dataset.dataset, "templates"):
+            answer_choices = dataloader.dataset.dataset.templates[0].answer_choices
+            if len(dataloader.dataset.dataset.templates) > 1:
+                assert all([answer_choices == t.answer_choices for t in dataloader.dataset.dataset.templates[1:]]), "all templates should have the same answer choices"
+        else:
+            answer_choices = None
 
         # if eval is called w/o train init deepspeed here
         if args.deepspeed and not self.deepspeed:
@@ -566,14 +585,103 @@ class FLADSeq2SeqTrainer(Seq2SeqTrainer):
             if not key.startswith(f"{metric_key_prefix}_"):
                 metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
 
+        # Convert predictions to string answer choices
+        if answer_choices is not None and all_preds is not None:
+            string_predictions = [answer_choices[pred] for pred in all_preds]
+        else:
+            string_predictions = None
+
+
         return EvalLoopOutput(
             predictions=all_preds,
+            string_predictions=string_predictions,
             label_ids=all_labels,
             score_candidates=all_score_cand,
             score_gts=all_score_gt,
             metrics=metrics,
-            num_samples=num_samples
+            num_samples=num_samples,
+            idxs=all_idx,
             )
+
+    def predict(
+        self,
+        test_dataset: Dataset,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "test",
+        **gen_kwargs
+    ) -> PredictionOutput:
+        """
+        Run prediction and returns predictions and potential metrics.
+
+        Depending on the dataset and your use case, your test dataset may contain labels. In that case, this method
+        will also return metrics, like in `evaluate()`.
+
+        Args:
+            test_dataset (`Dataset`):
+                Dataset to run the predictions on. If it is a [`~datasets.Dataset`], columns not accepted by the
+                `model.forward()` method are automatically removed. Has to implement the method `__len__`
+            ignore_keys (`List[str]`, *optional*):
+                A list of keys in the output of your model (if it is a dictionary) that should be ignored when
+                gathering predictions.
+            metric_key_prefix (`str`, *optional*, defaults to `"eval"`):
+                An optional prefix to be used as the metrics key prefix. For example the metrics "bleu" will be named
+                "eval_bleu" if the prefix is `"eval"` (default)
+            max_length (`int`, *optional*):
+                The maximum target length to use when predicting with the generate method.
+            num_beams (`int`, *optional*):
+                Number of beams for beam search that will be used when predicting with the generate method. 1 means no
+                beam search.
+            gen_kwargs:
+                Additional `generate` specific kwargs.
+
+        <Tip>
+
+        If your predictions or labels have different sequence lengths (for instance because you're doing dynamic
+        padding in a token classification task) the predictions will be padded (on the right) to allow for
+        concatenation into one array. The padding index is -100.
+
+        </Tip>
+
+        Returns: *NamedTuple* A namedtuple with the following keys:
+
+            - predictions (`np.ndarray`): The predictions on `test_dataset`.
+            - label_ids (`np.ndarray`, *optional*): The labels (if the dataset contained some).
+            - metrics (`Dict[str, float]`, *optional*): The potential dictionary of metrics (if the dataset contained
+              labels).
+        """
+
+        gen_kwargs = gen_kwargs.copy()
+        if gen_kwargs.get("max_length") is None and gen_kwargs.get("max_new_tokens") is None:
+            gen_kwargs["max_length"] = self.args.generation_max_length
+        gen_kwargs["num_beams"] = (
+            gen_kwargs["num_beams"] if gen_kwargs.get("num_beams") is not None else self.args.generation_num_beams
+        )
+        self._gen_kwargs = gen_kwargs
+
+        # memory metrics - must set up as early as possible
+        self._memory_tracker.start()
+
+        test_dataloader = self.get_test_dataloader(test_dataset)
+        start_time = time.time()
+
+        eval_loop = self.prediction_loop if self.args.use_legacy_prediction_loop else self.evaluation_loop
+        output = eval_loop(
+            test_dataloader, description="Prediction", ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
+        )
+        total_batch_size = self.args.eval_batch_size * self.args.world_size
+        output.metrics.update(
+            speed_metrics(
+                metric_key_prefix,
+                start_time,
+                num_samples=output.num_samples,
+                num_steps=math.ceil(output.num_samples / total_batch_size),
+            )
+        )
+
+        self.control = self.callback_handler.on_predict(self.args, self.state, self.control, output.metrics)
+        self._memory_tracker.stop_and_update_metrics(output.metrics)
+
+        return PredictionOutput(predictions=output.predictions, string_predictions=output.string_predictions, label_ids=output.label_ids, metrics=output.metrics, idxs=output.idxs)
 
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None

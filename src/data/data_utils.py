@@ -16,13 +16,16 @@ def get_train_val_datasets(training_args, target_dataset_args, data_args):
     # If only training with auxiliary data, use the auxiliary dataset for validation
     if training_args.train_strategy == "auxiliary_only":
         train_dataset = get_datasets(data_args.auxiliary_dataset, split="train",
-                max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True)
-        validation_dataset = get_datasets(data_args.auxiliary_dataset, split="validation",return_as_dict=False)
+                max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True,
+                include_T0_eval=data_args.include_T0_eval)
+        validation_dataset = get_datasets(data_args.auxiliary_dataset, split="validation",
+                return_as_dict=False, include_T0_eval=data_args.include_T0_eval)
 
     # If training with auxiliary and target data, use the target dataset for validation
     elif training_args.train_strategy == "auxiliary_and_target":
         train_dataset = get_datasets(data_args.auxiliary_dataset, split="train",
-                max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True)
+                max_samples=data_args.max_samples_per_auxiliary_dataset, return_as_dict=True,
+                include_T0_eval=data_args.include_T0_eval, target_dataset=data_args.target_dataset)
         validation_dataset = get_datasets(data_args.target_dataset, split="validation",
                             target_dataset_args=target_dataset_args, return_as_dict=False)
         # If using Exp3 or UCB1, keep target dataset separate from auxiliary dataset

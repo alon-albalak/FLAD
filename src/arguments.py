@@ -204,8 +204,19 @@ class DataTrainingArguments:
         metadata={
             "help": "If using a single template, specify here. -1 is default, uses all templates."
         },
+    ),
+    max_predict_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "The maximum number of samples to use for prediction"
+        }
     )
-    
+    include_T0_eval: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Whether to include the T0 eval set in the auxiliary training data"
+        }
+    )
     def __post_init__(self):
         if self.auxiliary_dataset is None and self.target_dataset is None:
             raise ValueError("Need either a dataset name or a training/validation file.")
@@ -243,7 +254,7 @@ class TargetDatasetArguments:
         default="comma"
     )
     cleaned_answer_choices_b77: Optional[bool] = field(
-        default=False
+        default=True
     )
     def __post_init__(self):
         assert((self.num_shot and self.few_shot_random_seed) or \

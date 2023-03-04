@@ -86,6 +86,7 @@ P3Mixture_split_map={
     ("glue","mnli_matched"): "validation",
     ("glue","mnli_mismatched"): "validation",
     ('mc_taco', None): "validation",
+    ('story_cloze', '2016'): "validation",
     ('squad_adversarial', 'AddSent'): "validation",
     ('turk', None): "validation",
     ('wino_bias', 'type1_anti'): "validation",
@@ -117,6 +118,7 @@ P3SkippedDatasets=[
     ('jigsaw_unintended_bias', None), # requires manual download
     ('asnq', None), # download is broken
     ("coqa", None), # temporarily not working
+    ("anli", None), # requires special split names
 ]
 
 EvalMixture = [
@@ -200,13 +202,15 @@ def get_datasets(
         max_samples=None,
         template_idx=-1,
         target_dataset_args=None,
-        return_as_dict=False
+        return_as_dict=False,
+        include_T0_eval=False,
+        target_dataset=None
     ):
     assert(split in ['train','validation','test'])
     if dataset_or_mixture_name == "T0Mixture":
         return get_T0MixtureDatasets(split, max_samples, return_as_dict)
     elif dataset_or_mixture_name == "P3":
-        return get_P3MixtureDatasets(split, max_samples, return_as_dict)
+        return get_P3MixtureDatasets(split, max_samples, return_as_dict, include_T0_eval, target_dataset)
     elif dataset_or_mixture_name in EvalMixture:
         return get_eval_dataset(dataset_or_mixture_name, split, target_dataset_args, return_as_dict)
     elif dataset_or_mixture_name in RAFT_DATASETS:
@@ -236,7 +240,7 @@ def get_T0MixtureDatasets(split, max_samples=None, return_as_dict=True):
         assert(len(templates) > 0), "No templates"
     return datasets
 
-def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
+def get_P3MixtureDatasets(split, max_samples=None, return_as_dict=True, include_T0_eval=False, target_dataset=None):
     """
     P3Mixture creates a separate dataset for each dataset in
         P3 that is NOT in the evaluation mixture
@@ -247,8 +251,11 @@ def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
         tmp_split = split
         name, subset = k
 
+        if target_dataset is not None and target_dataset == name:
+            continue
+
         # Skip evaluation datasets
-        if (name in EvalMixture) or k in EvalMixtureFullNames:
+        if not include_T0_eval and ((name in EvalMixture) or k in EvalMixtureFullNames):
             continue
         
         # Skip some datasets for various reasons
@@ -262,7 +269,10 @@ def get_P3MixtureDatasets(split, max_samples = None, return_as_dict=True):
 
         if max_samples:
             try:
-                dataset = load_dataset(name, subset, split=f"{tmp_split}[:{max_samples}]", cache_dir=CACHE_DIR)
+                if k == ('story_cloze', '2016'):
+                    dataset = load_dataset(name, subset, split=tmp_split,data_dir="data/story_cloze/", cache_dir=CACHE_DIR)
+                else:
+                    dataset = load_dataset(name, subset, split=f"{tmp_split}[:{max_samples}]", cache_dir=CACHE_DIR)
             except:
                 logger.warn(f"Failed to load max samples of {k}. Loading full dataset.")
                 dataset = load_dataset(name, subset, split=tmp_split, cache_dir=CACHE_DIR)
@@ -398,14 +408,6 @@ class BaseDatasetReader(object):
         train_data = sampled_data[:num_shot//2]
         validation_data = sampled_data[num_shot//2:]
         return train_data, validation_data
-
-
-    def get_compute_metric(self):
-        def compute_metric(accumulated):
-            matching = [a == b for a, b in zip(accumulated["prediction"], accumulated["label"])]
-            accuracy = sum(matching) / len(matching)
-            return {"accuracy": accuracy}
-        return compute_metric
 
 class StoryClozeReader(BaseDatasetReader):
     def __init__(self, target_dataset_args):
@@ -555,7 +557,6 @@ class CBReader(BaseDatasetReader):
     def __init__(self, target_dataset_args):
         super().__init__(dataset_stash=("super_glue", "cb"))
 
-# TODO: Adjust RAFT data to match data-loading strategy
 class RaftTemplate(object):
     def __init__(self, dataset_name, target_dataset_args, answer_choices):
         with open(os.path.join(os.path.dirname(__file__), "raft_prompt_construction_settings.jsonl")) as f:
@@ -610,95 +611,26 @@ class RaftReader(object):
 
         self.templates = [RaftTemplate(dataset_name, target_dataset_args, self.answer_choices)]
 
-    # def get_train_template(self):
-    #     return self.template
-
-    # def get_eval_template(self):
-    #     return self.template
-
     def read_orig_dataset(self, split):
         """
         Read the original dataset
 
         :param split: split of data
         """
-        if self.target_dataset_args.raft_cross_validation:
+        if split in ["train", "validation"] and self.target_dataset_args.raft_cross_validation:
             orig_data = [example for example in self.orig_data["train"]]
             if self.target_dataset_args.few_shot_random_seed:
                 np.random.seed(self.target_dataset_args.few_shot_random_seed)
             else:
                 np.random.seed(42)
             np.random.shuffle(orig_data)
-            # if split == "train":
-            #     orig_data = (
-            #         orig_data[: self.config.raft_validation_start] + orig_data[self.config.raft_validation_start + 10 :]
-            #     )
-            #     assert len(orig_data) == 40
-            # elif split == "validation":
-            #     orig_data = orig_data[self.config.raft_validation_start : self.config.raft_validation_start + 10]
-            #     assert len(orig_data) == 10
             if split == "train":
                 orig_data = orig_data[:25]
             elif split == "validation":
                 orig_data = orig_data[25:]
         else:
-            if split == "validation":
-                split = "test"
             orig_data = [example for example in self.orig_data[split]]
         for i, example in enumerate(orig_data):
-            # if self.dataset_name in ['ade_corpus_v2', 'terms_of_service','overruling']:
-            #     example['input'] = example['Sentence'].strip()
-            # elif self.dataset_name in ['banking_77']:
-            #     example['input'] = example['Query'].strip()
-            # elif self.dataset_name in ['tai_safety_research']:
-            #     example['input'] = 'Title : ' + example['Title'].strip() + ' ' + \
-            #         'Abstract Note : ' + example['Abstract Note'].strip() + ' '+ \
-            #             'Url : ' + example['Url'].strip() + ' ' + \
-            #                 'Publication Year : ' + example['Publication Year'].strip() + ' '+ \
-            #                     'Item Type : ' + example['Item Type'].strip() + ' ' + \
-            #                         'Author : ' + example['Author'].strip() + ' '+ \
-            #                             'Publication Title : '  + example['Publication Title'].strip()
-            # elif self.dataset_name in ['neurips_impact_statement_risks']:
-            #     example['input'] = 'Paper title : ' + example['Paper title'].strip() + ' ' + \
-            #         'Paper link : ' + example['Paper link'].strip() + ' ' + \
-            #             'Impact statement : ' + example['Impact statement'].strip()
-            # elif self.dataset_name in ['systematic_review_inclusion']:
-            #     example['input'] = 'Title : ' + example['Title'].strip() + ' ' + \
-            #         'Abstract : ' + example['Abstract'].strip() + ' ' + \
-            #             'Authors : ' + example['Authors'].strip() + ' ' + \
-            #                 'Journal : ' + example['Journal'].strip()
-            # elif self.dataset_name in ['one_stop_english']:
-            #     example['input'] = example['Article'].strip()
-            # elif self.dataset_name in ['tweet_eval_hate']:
-            #     example['input'] = example['Tweet'].strip()
-            # elif self.dataset_name in ['twitter_complaints']:
-            #     example['input'] = example['Tweet text'].strip()
-            # elif self.dataset_name in ['semiconductor_org_types']:
-            #     example['input'] = 'Paper title : ' + example['Paper title'].strip() + \
-            #         'Organization name : ' + example['Organization name'].strip()
             example["label"] = int(example["Label"]) - 1
             example["idx"] = example["ID"]
         return orig_data
-
-    def get_compute_metric(self):
-        def compute_metric(accumulated):
-            data = []
-            idxs = accumulated["idx"]
-            predictions = accumulated["prediction"]
-            # for idx, prediction in zip(idxs, predictions):
-            #     data.append({"ID": idx, "Label": self.answer_choices[prediction]})
-            # result_df = pd.DataFrame(data=data, columns=["ID", "Label"]).astype({"ID": int, "Label": str})
-            # result_df.to_csv(self.config.dev_pred_file, index=False)
-            # matching = [a == b for a, b in zip(accumulated["prediction"], accumulated["label"])]
-            # accuracy = sum(matching) / len(matching)
-            # return {"accuracy": accuracy}
-
-            answer_choices = accumulated['answer_choices']
-            for idx, prediction in zip(idxs, predictions):
-                data.append({"ID": idx, "Label": answer_choices[prediction]})
-            result_df = pd.DataFrame(data=data, columns=["ID", "Label"]).astype({"ID": int, "Label": str})
-            result_df.to_csv(self.config.dev_pred_file, index=False)
-            matching = [a == b for a, b in zip(accumulated["prediction"], accumulated["label"])]
-            accuracy = sum(matching) / len(matching)
-            return {"accuracy": accuracy}
-        return compute_metric

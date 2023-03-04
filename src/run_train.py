@@ -387,14 +387,13 @@ def main():
         trainer.save_metrics("predict", metrics)
 
         if trainer.is_world_process_zero():
-            if training_args.predict_with_generate:
-                predictions = tokenizer.batch_decode(
-                    predict_results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
-                )
-                predictions = [pred.strip() for pred in predictions]
-                output_prediction_file = os.path.join(training_args.output_dir, "generated_predictions.txt")
-                with open(output_prediction_file, "w") as writer:
-                    writer.write("\n".join(predictions))
+            output_prediction_file = os.path.join(training_args.output_dir, "predictions.csv")
+            with open(output_prediction_file, "w") as writer:
+                writer.write("ID,Label\n")
+                for idx, pred in zip(predict_results.idxs, predict_results.string_predictions):
+                    if predict_dataset.dataset_name == "banking_77":
+                        pred = pred.replace(" ", "_")
+                    writer.write(f"{idx},{pred}\n")
     return results
 
 if __name__ == "__main__":
