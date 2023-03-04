@@ -1,5 +1,10 @@
 # FLAD - Few-shot Learning with Auxiliary Data
 
+This is the official repository for [Improving Few-Shot Generalization by Exploring and Exploiting Auxiliary Data](https://arxiv.org/abs/2302.00674).
+
+Overview of our approach to FLAD with multi-armed bandits:
+![FLAD Overview](flad_overview.png)
+
 ## Overview
 
 Few-shot learning with auxiliary data (**FLAD**) assumes access to auxiliary labeled data during learning to improve a model's few-shot generalization.
@@ -11,9 +16,9 @@ This repository is set up to be easily adaptable to new models (by altering `src
 ## Getting Started:
 
 <details><summary>Environment Setup</summary>
-  
+<br>
 First, install python requirements from `requirements.txt` using your favorite virtual environment manager and the appropriate cuda version.
-
+<br>
 For example, with conda use:
   
 ```bash
@@ -50,9 +55,9 @@ GPU=0
 TARGET_DATASET='copa'
 bash all_exploit.sh $GPU $TARGET_DATASET
 ```
-    
-Note: The exploit-only baseline requires computing auxiliary dataset gradients prior to training.
 
+*Note*: The exploit-only baseline requires computing auxiliary dataset gradients prior to training.
+<br>
 This process will take a few hours, depending on your hardware.
  </details>
 
