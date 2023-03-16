@@ -1449,12 +1449,15 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             f"{self.args.weight_initialization_samples}_{self.data_args.target_dataset}_"
             f"{self.data_args.auxiliary_dataset}_{model_name}_{self.target_dataset_args.few_shot_random_seed}.json"
             )
+        if self.args.reward_function == "magnitude":
+            weight_save_file = weight_save_file.replace(".json","_magnitude.json")
 
         # save path for gradients
         grad_save_path = os.path.join(self.args.precomputed_grad_save_dir,"initial_gradients",
             f"{self.args.weight_initialization_samples}_{self.data_args.auxiliary_dataset}_"
             f"{model_name}"
         )
+
         if not os.path.exists(grad_save_path):
             os.makedirs(grad_save_path, exist_ok=True)
 

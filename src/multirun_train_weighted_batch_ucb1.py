@@ -319,6 +319,7 @@ if __name__ == "__main__":
     parser.add_argument("--gradient_directed", type=bool, default=True)
     parser.add_argument("--base_output_dir", type=str, default=None)
     parser.add_argument("--precomputed_weight_grad_save_dir", type=str, default=None)
+    parser.add_argument("--reward_function", type=str, default="cosine")
     args = parser.parse_args()
 
     # model arguments
@@ -505,7 +506,8 @@ if __name__ == "__main__":
                     dataset_similarity_threshold=dataset_similarity_threshold,
                     offload_grads=args.offload_grads,
                     tf32=True,
-                    ucb1=ucb1
+                    ucb1=ucb1,
+                    reward_function=args.reward_function
                 )
 
                 handler = logging.StreamHandler(sys.stdout)
