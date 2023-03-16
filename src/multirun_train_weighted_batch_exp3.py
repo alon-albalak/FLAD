@@ -318,6 +318,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_strategy", type=str, default="auxiliary_and_target")
     parser.add_argument("--gradient_directed", type=bool, default=True)
     parser.add_argument("--base_output_dir", type=str, default=None)
+    parser.add_argument("--reward_function", type=str, default="cosine")
     args = parser.parse_args()
 
     # model arguments
@@ -499,7 +500,8 @@ if __name__ == "__main__":
                     weight_initialization_samples=args.weight_initialization_samples,
                     dataset_similarity_threshold=dataset_similarity_threshold,
                     tf32=True,
-                    exp3=exp3
+                    exp3=exp3,
+                    reward_function=args.reward_function
                 )
 
                 handler = logging.StreamHandler(sys.stdout)

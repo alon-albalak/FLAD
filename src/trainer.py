@@ -1216,7 +1216,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
                 prev_grads = {}
                 first_param = True
                 for name, param in model.named_parameters():
-                    if self.args.similarity_strategy in name:
+                    if self.args.reward_model_partition in name:
                         if first_param:
                             if param.grad is None or torch.sum(param.grad) == 0:
                                 break
@@ -1268,7 +1268,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             with torch.no_grad():
                 grads = []
                 for name, param in model.named_parameters():
-                    if self.args.similarity_strategy in name:
+                    if self.args.reward_model_partition in name:
                         p = param.grad.detach()
                         if self.args.offload_grads:
                             p = p.cpu()
@@ -1379,7 +1379,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             grad = []
             for name, param in model.named_parameters():
                 # print(name)
-                if self.args.similarity_strategy in name:
+                if self.args.reward_model_partition in name:
                     # if "weight" in name:
                     grad.append(param.grad.detach())
             grad = torch.concat([g.flatten() for g in grad])
@@ -1400,14 +1400,27 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         self._gradients = {name: None for name in self.auxiliary_dataset_names}
         self._similarities = {name: torch.tensor(1, dtype=torch.float) for name in self.auxiliary_dataset_names}
 
+    def _calculate_similarity(self, target_grad, auxiliary_grad):
+        if self.args.reward_function == "cosine":
+            # calculate cosine similarity between grads and target
+            return torch.nn.functional.cosine_similarity(target_grad, auxiliary_grad, dim=0)            
+        elif self.args.reward_function == "magnitude":
+            # calculate magnitude similarity between grads and target
+            target_norm = torch.linalg.norm(target_grad)
+            auxiliary_norm = torch.linalg.norm(auxiliary_grad)
+            return (2*target_norm*auxiliary_norm + 1e-8) / \
+                (target_norm**2 + auxiliary_norm**2 + 1e-8)
+        else:
+            raise ValueError("Invalid similarity strategy.")
+
     def _update_grad_similarity(self, target_grad):
-        # calculate cosine similarity between grads and target
+        # calculate similarity between grads and target
         for dataset_name in self.auxiliary_dataset_names:
             if self._gradients[dataset_name] is not None:
-                cos_sim = torch.nn.functional.cosine_similarity(target_grad, self._gradients[dataset_name], dim=0)
+                sim = self._calculate_similarity(target_grad, self._gradients[dataset_name])
                 self._similarities[dataset_name] = \
                     (1-self.similarity_beta)*self._similarities[dataset_name] + \
-                        self.similarity_beta*cos_sim
+                        self.similarity_beta*sim
 
                 # move similarity to device if needed
                 if self.args.offload_grads:
@@ -1469,10 +1482,10 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
                     grad = self._calculate_grad(model, dataloader)
                     torch.save(grad, grad_save_file)
 
-                cos_sim = torch.nn.functional.cosine_similarity(target_grad, grad, dim=0)
-                similarities[name] = cos_sim.detach().clone().item()
+                sim = self._calculate_similarity(target_grad, grad)
+                similarities[name] = sim.detach().clone().item()
                 logger.info(f"Initial similarity for {name}: {similarities[name]}")
-                self._similarities[name] = cos_sim.detach().clone()
+                self._similarities[name] = sim.detach().clone()
             with open(weight_save_file, 'w') as f:
                 json.dump(similarities, f, indent=2)
 
@@ -1987,13 +2000,13 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
         self._update_probabilities()
 
     def _update_grad_similarity(self, target_grad):
-        # calculate cosine similarity between grads and target
+        # calculate similarity between grads and target
         for dataset_name in self.auxiliary_dataset_names:
             if self._gradients[dataset_name] is not None:
-                cos_sim = torch.nn.functional.cosine_similarity(target_grad, self._gradients[dataset_name], dim=0)
+                sim = self._calculate_similarity(target_grad, self._gradients[dataset_name])
                 self._similarities[dataset_name] = \
                     (1-self.similarity_beta)*self._similarities[dataset_name] + \
-                        self.similarity_beta*cos_sim
+                        self.similarity_beta*sim
 
                 # Exp3 update
                 self._cumulative_estimated_reward[dataset_name] = self._cumulative_estimated_reward[dataset_name] + \
