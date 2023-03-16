@@ -401,7 +401,7 @@ if __name__ == "__main__":
     lr_scheduler_type="constant_with_warmup"
     gradient_directed=True
     FLAD_strategy="batched"
-    similarity_strategy="lm_head"
+    reward_model_partition="lm_head"
     
 
     # data loading
@@ -492,7 +492,7 @@ if __name__ == "__main__":
                     lr_scheduler_type=lr_scheduler_type,
                     gradient_directed=gradient_directed,
                     FLAD_strategy=FLAD_strategy,
-                    similarity_strategy=similarity_strategy,
+                    reward_model_partition=reward_model_partition,
                     similarity_beta=beta,
                     loss_scaling=loss_scaling,
                     weighted_batch_sampling=weighted_batch_sampling,

@@ -52,6 +52,10 @@ class SimilarityStrategy(ExplicitEnum):
     DECODER = "decoder"
     LM_HEAD = "lm_head"
 
+class RewardFunction(ExplicitEnum):
+    COSINE = "cosine"
+    MAGNITUDE = "magnitude"
+
 @dataclass
 class ModelArguments:
     """
@@ -354,7 +358,7 @@ class FLADTrainingArguments(Seq2SeqTrainingArguments):
             "help": "If <1 then gradient similarity updates will be an exponential moving average"
         }
     )
-    similarity_strategy: Optional[Union[SimilarityStrategy, str]] = field(
+    reward_model_partition: Optional[Union[SimilarityStrategy, str]] = field(
       default="weight",
       metadata={
           "help": "Determines which weights to use for similarity calculation"
@@ -392,6 +396,12 @@ class FLADTrainingArguments(Seq2SeqTrainingArguments):
         default=False,
         metadata={
             "help": "Flag to use UCB1 algorithm for batch weighting."
+        }
+    )
+    reward_function: Optional[Union[RewardFunction, str]] = field(
+        default="cosine",
+        metadata={
+            "help": "Determines which reward function to use for batch weighting."
         }
     )
 
