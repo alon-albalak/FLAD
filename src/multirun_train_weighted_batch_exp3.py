@@ -314,6 +314,7 @@ if __name__ == "__main__":
     parser.add_argument("--target_dataset", type=str)
     parser.add_argument("--aux_dataset", type=str)
     parser.add_argument("--model", type=str)
+    parser.add_argument("--beta", type=float, default=1.0)
     parser.add_argument("--weight_initialization_samples", type=int, default=0)
     parser.add_argument("--train_strategy", type=str, default="auxiliary_and_target")
     parser.add_argument("--gradient_directed", type=bool, default=True)
@@ -326,7 +327,7 @@ if __name__ == "__main__":
     eval_steps=100
     save_steps=100
     eval_delay=100
-    betas = [1.0]
+    betas = [args.beta]
     if args.model == "google/t5-base-lm-adapt":
         model_name_or_path = "google/t5-base-lm-adapt"
         model_name = "T5_LM_base"
@@ -341,7 +342,7 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        grad_accs = [4, 16]
+        grad_accs = [16]
         lrs = [1e-4]
     elif args.model == "bigscience/T0_3B":
         model_name_or_path = "bigscience/T0_3B"
@@ -349,7 +350,7 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        grad_accs = [4, 16]
+        grad_accs = [16]
         lrs = [1e-4]
     else:
         raise ValueError("Model not supported")

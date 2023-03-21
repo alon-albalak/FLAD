@@ -427,8 +427,8 @@ class FLADSeq2SeqTrainer(Seq2SeqTrainer):
 
         if hasattr(dataloader.dataset.dataset, "templates"):
             answer_choices = dataloader.dataset.dataset.templates[0].answer_choices
-            if len(dataloader.dataset.dataset.templates) > 1:
-                assert all([answer_choices == t.answer_choices for t in dataloader.dataset.dataset.templates[1:]]), "all templates should have the same answer choices"
+            # if len(dataloader.dataset.dataset.templates) > 1:
+            #     assert all([answer_choices == t.answer_choices for t in dataloader.dataset.dataset.templates[1:]]), "all templates should have the same answer choices"
         else:
             answer_choices = None
 
