@@ -55,6 +55,7 @@ class SimilarityStrategy(ExplicitEnum):
 class RewardFunction(ExplicitEnum):
     COSINE = "cosine"
     MAGNITUDE = "magnitude"
+    BOTH = "cosine_and_magnitude"
 
 @dataclass
 class ModelArguments:

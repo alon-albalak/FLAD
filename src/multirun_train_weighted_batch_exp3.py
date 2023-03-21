@@ -342,7 +342,7 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        grad_accs = [4, 16]
+        grad_accs = [16]
         lrs = [1e-4]
     elif args.model == "bigscience/T0_3B":
         model_name_or_path = "bigscience/T0_3B"
@@ -350,7 +350,7 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        grad_accs = [4, 16]
+        grad_accs = [16]
         lrs = [1e-4]
     else:
         raise ValueError("Model not supported")
@@ -379,12 +379,12 @@ if __name__ == "__main__":
     if args.base_output_dir is not None:
         base_output_dir=f"{args.base_output_dir}/{model_name}/{args.aux_dataset}/"+\
             "{}/"+f"{args.seed}/{args.target_dataset}/"+\
-                "{}/{}/{}/"+\
+                "{}/{}/{}/{}/{}/"+\
                 f"{args.weight_initialization_samples}"
     else:
         base_output_dir=f"{MAIN_OUTPUT_DIR}/{model_name}/{args.aux_dataset}/"+\
             "{}/"+f"{args.seed}/{args.target_dataset}/"+\
-                "{}/{}/{}/"+\
+                "{}/{}/{}/{}/{}/"+\
                 f"{args.weight_initialization_samples}"
     overwrite_output_dir=True
     predict_with_generate=True
@@ -442,10 +442,10 @@ if __name__ == "__main__":
                 print(f"*** Running experiment {count} of {total}")
                 if dataset_similarity_threshold is not None:
                     # add threshold to output dir
-                    output_dir = base_output_dir.format(f"{loss_or_sample_name}_with_threshold", beta, grad_acc, lr, args.weight_initialization_samples)
+                    output_dir = base_output_dir.format(f"{loss_or_sample_name}_with_threshold", args.reward_function, beta, grad_acc, lr, args.weight_initialization_samples)
                     output_dir = output_dir+f"/{dataset_similarity_threshold}"
                 else:
-                    output_dir = base_output_dir.format(loss_or_sample_name, beta, grad_acc, lr, args.weight_initialization_samples)
+                    output_dir = base_output_dir.format(loss_or_sample_name, args.reward_function, beta, grad_acc, lr, args.weight_initialization_samples)
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir, exist_ok=True)
 

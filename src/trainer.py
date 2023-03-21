@@ -427,8 +427,8 @@ class FLADSeq2SeqTrainer(Seq2SeqTrainer):
 
         if hasattr(dataloader.dataset.dataset, "templates"):
             answer_choices = dataloader.dataset.dataset.templates[0].answer_choices
-            if len(dataloader.dataset.dataset.templates) > 1:
-                assert all([answer_choices == t.answer_choices for t in dataloader.dataset.dataset.templates[1:]]), "all templates should have the same answer choices"
+            # if len(dataloader.dataset.dataset.templates) > 1:
+            #     assert all([answer_choices == t.answer_choices for t in dataloader.dataset.dataset.templates[1:]]), "all templates should have the same answer choices"
         else:
             answer_choices = None
 
@@ -1143,6 +1143,12 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         self.target_dataset_args = target_dataset_args
         # Initialize gradients and similarities
         self._initialize_grads_similarities()
+        self._vars_to_log = {}
+        self._initialize_vars_to_log()
+
+    def _initialize_vars_to_log(self):
+        # add variable names and their value type to self._vars_to_log
+        self._vars_to_log["similarities"] = "tensor"
 
     def _training_step_large_model(self, model, inputs, batch_dataset, scale_by_similarities):
         batch_size = inputs["input_ids"].shape[0]
@@ -1410,6 +1416,15 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             auxiliary_norm = torch.linalg.norm(auxiliary_grad)
             return (2*target_norm*auxiliary_norm + 1e-8) / \
                 (target_norm**2 + auxiliary_norm**2 + 1e-8)
+        elif self.args.reward_function == "cosine_and_magnitude":
+            # calculate cosine similarity between grads and target
+            cosine_similarity = torch.nn.functional.cosine_similarity(target_grad, auxiliary_grad, dim=0)
+            # calculate magnitude similarity between grads and target
+            target_norm = torch.linalg.norm(target_grad)
+            auxiliary_norm = torch.linalg.norm(auxiliary_grad)
+            magnitude_similarity = (2*target_norm*auxiliary_norm + 1e-8) / \
+                (target_norm**2 + auxiliary_norm**2 + 1e-8)
+            return cosine_similarity + magnitude_similarity
         else:
             raise ValueError("Invalid similarity strategy.")
 
@@ -1451,6 +1466,8 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             )
         if self.args.reward_function == "magnitude":
             weight_save_file = weight_save_file.replace(".json","_magnitude.json")
+        elif self.args.reward_function == "cosine_and_magnitude":
+            weight_save_file = weight_save_file.replace(".json","_cosine_and_magnitude.json")
 
         # save path for gradients
         grad_save_path = os.path.join(self.args.precomputed_grad_save_dir,"initial_gradients",
@@ -1947,7 +1964,11 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             logs["learning_rate"] = self._get_learning_rate()
             if samples_seen_per_dataset is not None:
                 logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
-            logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
+            for var,t in self._vars_to_log.items():
+                if t == "scalar":
+                    logs[var] = {k:v for k,v in getattr(self, f"_{var}").items()}
+                elif t == "tensor":
+                    logs[var] = {k:v.item() for k,v in getattr(self, f"_{var}").items()}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
@@ -1997,6 +2018,11 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
         self.eps = 1/len(self.auxiliary_dataset_names)
         self.prev_eps = None
         self._update_probabilities()
+
+    def _initialize_vars_to_log(self):
+        self._vars_to_log['cumulative_estimated_reward'] = "tensor"
+        self._vars_to_log['probabilities'] = "tensor"
+        self._vars_to_log['similarities'] = "tensor"
 
     def _initialize_weights(self, train_dataloader, target_dataloader, model):
         super()._initialize_weights(train_dataloader, target_dataloader, model)
@@ -2059,9 +2085,14 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
             logs["learning_rate"] = self._get_learning_rate()
             if samples_seen_per_dataset is not None:
                 logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
-            logs['cumulative_estimated_reward'] = {k: v.item() for k,v in self._cumulative_estimated_reward.items()}
-            logs['probabilities'] = {k: v.item() for k,v in self._probabilities.items()}
-            logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
+            for var,t in self._vars_to_log.items():
+                if t == "scalar":
+                    logs[var] = {k:v for k,v in getattr(self, f"_{var}").items()}
+                elif t == "tensor":
+                    logs[var] = {k:v.item() for k,v in getattr(self, f"_{var}").items()}
+            # logs['cumulative_estimated_reward'] = {k: v.item() for k,v in self._cumulative_estimated_reward.items()}
+            # logs['probabilities'] = {k: v.item() for k,v in self._probabilities.items()}
+            # logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
@@ -2549,6 +2580,9 @@ class UCB1BatchedFLADTrainer(BatchedFLADTrainer):
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
+    def _initialize_vars_to_log(self):
+        self._vars_to_log['upper_confidence_index'] = "tensor"
+
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset):
         if self.control.should_log:
 
@@ -2565,8 +2599,13 @@ class UCB1BatchedFLADTrainer(BatchedFLADTrainer):
             logs["learning_rate"] = self._get_learning_rate()
             if samples_seen_per_dataset is not None:
                 logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
-            logs['upper_confidence_index'] = {k: v.item() for k,v in self._upper_confidence_index.items()}
-            logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
+            for var,t in self._vars_to_log.items():
+                if t == "scalar":
+                    logs[var] = {k:v for k,v in getattr(self, f"_{var}").items()}
+                elif t == "tensor":
+                    logs[var] = {k:v.item() for k,v in getattr(self, f"_{var}").items()}
+            # logs['upper_confidence_index'] = {k: v.item() for k,v in self._upper_confidence_index.items()}
+            # logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
