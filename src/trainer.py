@@ -2024,7 +2024,6 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
     def _initialize_vars_to_log(self):
         self._vars_to_log['cumulative_estimated_reward'] = "tensor"
         self._vars_to_log['probabilities'] = "tensor"
-        self._vars_to_log['similarities'] = "tensor"
 
     def _initialize_weights(self, train_dataloader, target_dataloader, model):
         super()._initialize_weights(train_dataloader, target_dataloader, model)
