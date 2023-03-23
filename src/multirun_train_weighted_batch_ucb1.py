@@ -328,13 +328,13 @@ if __name__ == "__main__":
     eval_steps=100
     save_steps=100
     eval_delay=100
+    betas = [0.1]
     if args.model == "google/t5-base-lm-adapt":
         model_name_or_path = "google/t5-base-lm-adapt"
         model_name = "T5_LM_base"
         per_device_train_batch_size=16
         per_device_eval_batch_size=128
         gradient_checkpointing = False
-        betas = [0.1]
         grad_accs = [2, 8]
         lrs = [3e-4, 1e-4]
     elif args.model == "google/t5-xl-lm-adapt":
@@ -343,7 +343,6 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        betas = [0.1]
         grad_accs = [16]
         lrs = [1e-4]
     elif args.model == "bigscience/T0_3B":
@@ -352,7 +351,6 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        betas = [0.1]
         grad_accs = [16]
         lrs = [1e-4]
     else:
