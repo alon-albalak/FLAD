@@ -1419,6 +1419,8 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         elif self.args.reward_function == "cosine_and_magnitude":
             # calculate cosine similarity between grads and target
             cosine_similarity = torch.nn.functional.cosine_similarity(target_grad, auxiliary_grad, dim=0)
+            # normalize cosine_similarity to 0-1 range
+            cosine_similarity = (cosine_similarity + 1) / 2
             # calculate magnitude similarity between grads and target
             target_norm = torch.linalg.norm(target_grad)
             auxiliary_norm = torch.linalg.norm(auxiliary_grad)
