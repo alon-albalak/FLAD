@@ -1143,6 +1143,12 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         self.target_dataset_args = target_dataset_args
         # Initialize gradients and similarities
         self._initialize_grads_similarities()
+        self._vars_to_log = {}
+        self._initialize_vars_to_log()
+
+    def _initialize_vars_to_log(self):
+        # add variable names and their value type to self._vars_to_log
+        self._vars_to_log["similarities"] = "tensor"
 
     def _training_step_large_model(self, model, inputs, batch_dataset, scale_by_similarities):
         batch_size = inputs["input_ids"].shape[0]
@@ -1216,7 +1222,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
                 prev_grads = {}
                 first_param = True
                 for name, param in model.named_parameters():
-                    if self.args.similarity_strategy in name:
+                    if self.args.reward_model_partition in name:
                         if first_param:
                             if param.grad is None or torch.sum(param.grad) == 0:
                                 break
@@ -1268,7 +1274,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             with torch.no_grad():
                 grads = []
                 for name, param in model.named_parameters():
-                    if self.args.similarity_strategy in name:
+                    if self.args.reward_model_partition in name:
                         p = param.grad.detach()
                         if self.args.offload_grads:
                             p = p.cpu()
@@ -1379,7 +1385,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             grad = []
             for name, param in model.named_parameters():
                 # print(name)
-                if self.args.similarity_strategy in name:
+                if self.args.reward_model_partition in name:
                     # if "weight" in name:
                     grad.append(param.grad.detach())
             grad = torch.concat([g.flatten() for g in grad])
@@ -1400,14 +1406,38 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         self._gradients = {name: None for name in self.auxiliary_dataset_names}
         self._similarities = {name: torch.tensor(1, dtype=torch.float) for name in self.auxiliary_dataset_names}
 
+    def _calculate_similarity(self, target_grad, auxiliary_grad):
+        if self.args.reward_function == "cosine":
+            # calculate cosine similarity between grads and target
+            return torch.nn.functional.cosine_similarity(target_grad, auxiliary_grad, dim=0)            
+        elif self.args.reward_function == "magnitude":
+            # calculate magnitude similarity between grads and target
+            target_norm = torch.linalg.norm(target_grad)
+            auxiliary_norm = torch.linalg.norm(auxiliary_grad)
+            return (2*target_norm*auxiliary_norm + 1e-8) / \
+                (target_norm**2 + auxiliary_norm**2 + 1e-8)
+        elif self.args.reward_function == "cosine_and_magnitude":
+            # calculate cosine similarity between grads and target
+            cosine_similarity = torch.nn.functional.cosine_similarity(target_grad, auxiliary_grad, dim=0)
+            # normalize cosine_similarity to 0-1 range
+            cosine_similarity = (cosine_similarity + 1) / 2
+            # calculate magnitude similarity between grads and target
+            target_norm = torch.linalg.norm(target_grad)
+            auxiliary_norm = torch.linalg.norm(auxiliary_grad)
+            magnitude_similarity = (2*target_norm*auxiliary_norm + 1e-8) / \
+                (target_norm**2 + auxiliary_norm**2 + 1e-8)
+            return cosine_similarity + magnitude_similarity
+        else:
+            raise ValueError("Invalid similarity strategy.")
+
     def _update_grad_similarity(self, target_grad):
-        # calculate cosine similarity between grads and target
+        # calculate similarity between grads and target
         for dataset_name in self.auxiliary_dataset_names:
             if self._gradients[dataset_name] is not None:
-                cos_sim = torch.nn.functional.cosine_similarity(target_grad, self._gradients[dataset_name], dim=0)
+                sim = self._calculate_similarity(target_grad, self._gradients[dataset_name])
                 self._similarities[dataset_name] = \
                     (1-self.similarity_beta)*self._similarities[dataset_name] + \
-                        self.similarity_beta*cos_sim
+                        self.similarity_beta*sim
 
                 # move similarity to device if needed
                 if self.args.offload_grads:
@@ -1436,12 +1466,17 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             f"{self.args.weight_initialization_samples}_{self.data_args.target_dataset}_"
             f"{self.data_args.auxiliary_dataset}_{model_name}_{self.target_dataset_args.few_shot_random_seed}.json"
             )
+        if self.args.reward_function == "magnitude":
+            weight_save_file = weight_save_file.replace(".json","_magnitude.json")
+        elif self.args.reward_function == "cosine_and_magnitude":
+            weight_save_file = weight_save_file.replace(".json","_cosine_and_magnitude.json")
 
         # save path for gradients
         grad_save_path = os.path.join(self.args.precomputed_grad_save_dir,"initial_gradients",
             f"{self.args.weight_initialization_samples}_{self.data_args.auxiliary_dataset}_"
             f"{model_name}"
         )
+
         if not os.path.exists(grad_save_path):
             os.makedirs(grad_save_path, exist_ok=True)
 
@@ -1469,10 +1504,10 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
                     grad = self._calculate_grad(model, dataloader)
                     torch.save(grad, grad_save_file)
 
-                cos_sim = torch.nn.functional.cosine_similarity(target_grad, grad, dim=0)
-                similarities[name] = cos_sim.detach().clone().item()
+                sim = self._calculate_similarity(target_grad, grad)
+                similarities[name] = sim.detach().clone().item()
                 logger.info(f"Initial similarity for {name}: {similarities[name]}")
-                self._similarities[name] = cos_sim.detach().clone()
+                self._similarities[name] = sim.detach().clone()
             with open(weight_save_file, 'w') as f:
                 json.dump(similarities, f, indent=2)
 
@@ -1931,7 +1966,11 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             logs["learning_rate"] = self._get_learning_rate()
             if samples_seen_per_dataset is not None:
                 logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
-            logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
+            for var,t in self._vars_to_log.items():
+                if t == "scalar":
+                    logs[var] = {k:v for k,v in getattr(self, f"_{var}").items()}
+                elif t == "tensor":
+                    logs[var] = {k:v.item() for k,v in getattr(self, f"_{var}").items()}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
@@ -1982,18 +2021,22 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
         self.prev_eps = None
         self._update_probabilities()
 
+    def _initialize_vars_to_log(self):
+        self._vars_to_log['cumulative_estimated_reward'] = "tensor"
+        self._vars_to_log['probabilities'] = "tensor"
+
     def _initialize_weights(self, train_dataloader, target_dataloader, model):
         super()._initialize_weights(train_dataloader, target_dataloader, model)
         self._update_probabilities()
 
     def _update_grad_similarity(self, target_grad):
-        # calculate cosine similarity between grads and target
+        # calculate similarity between grads and target
         for dataset_name in self.auxiliary_dataset_names:
             if self._gradients[dataset_name] is not None:
-                cos_sim = torch.nn.functional.cosine_similarity(target_grad, self._gradients[dataset_name], dim=0)
+                sim = self._calculate_similarity(target_grad, self._gradients[dataset_name])
                 self._similarities[dataset_name] = \
                     (1-self.similarity_beta)*self._similarities[dataset_name] + \
-                        self.similarity_beta*cos_sim
+                        self.similarity_beta*sim
 
                 # Exp3 update
                 self._cumulative_estimated_reward[dataset_name] = self._cumulative_estimated_reward[dataset_name] + \
@@ -2043,9 +2086,14 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
             logs["learning_rate"] = self._get_learning_rate()
             if samples_seen_per_dataset is not None:
                 logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
-            logs['cumulative_estimated_reward'] = {k: v.item() for k,v in self._cumulative_estimated_reward.items()}
-            logs['probabilities'] = {k: v.item() for k,v in self._probabilities.items()}
-            logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
+            for var,t in self._vars_to_log.items():
+                if t == "scalar":
+                    logs[var] = {k:v for k,v in getattr(self, f"_{var}").items()}
+                elif t == "tensor":
+                    logs[var] = {k:v.item() for k,v in getattr(self, f"_{var}").items()}
+            # logs['cumulative_estimated_reward'] = {k: v.item() for k,v in self._cumulative_estimated_reward.items()}
+            # logs['probabilities'] = {k: v.item() for k,v in self._probabilities.items()}
+            # logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
@@ -2533,6 +2581,9 @@ class UCB1BatchedFLADTrainer(BatchedFLADTrainer):
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
+    def _initialize_vars_to_log(self):
+        self._vars_to_log['upper_confidence_index'] = "tensor"
+
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval, samples_seen_per_dataset):
         if self.control.should_log:
 
@@ -2549,8 +2600,13 @@ class UCB1BatchedFLADTrainer(BatchedFLADTrainer):
             logs["learning_rate"] = self._get_learning_rate()
             if samples_seen_per_dataset is not None:
                 logs["samples_seen_per_dataset"] = {k: v for k,v in samples_seen_per_dataset.items()}
-            logs['upper_confidence_index'] = {k: v.item() for k,v in self._upper_confidence_index.items()}
-            logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
+            for var,t in self._vars_to_log.items():
+                if t == "scalar":
+                    logs[var] = {k:v for k,v in getattr(self, f"_{var}").items()}
+                elif t == "tensor":
+                    logs[var] = {k:v.item() for k,v in getattr(self, f"_{var}").items()}
+            # logs['upper_confidence_index'] = {k: v.item() for k,v in self._upper_confidence_index.items()}
+            # logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
