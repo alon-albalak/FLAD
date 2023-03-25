@@ -1145,6 +1145,13 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         self._initialize_grads_similarities()
         self._vars_to_log = {}
         self._initialize_vars_to_log()
+        self._initialize_auxiliary_dataloaders()
+
+    def _initialize_auxiliary_dataloaders(self):
+        # initialize data loaders for train_dataset_dict
+        self.auxiliary_dataloaders = {}
+        for name, dataset in self.train_dataset_dict.items():
+            self.auxiliary_dataloaders[name] = self.get_target_dataloader(dataset)
 
     def _initialize_vars_to_log(self):
         # add variable names and their value type to self._vars_to_log
@@ -1523,6 +1530,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         # Data loader and number of training steps
         train_dataloader = self.get_train_dataloader()
         target_dataloader = self.get_target_dataloader(self.target_dataset)
+        self.target_dataloader = target_dataloader
 
         # Setting up training control variables:
         # number of training epochs: num_train_epochs
@@ -2094,6 +2102,24 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
             # logs['cumulative_estimated_reward'] = {k: v.item() for k,v in self._cumulative_estimated_reward.items()}
             # logs['probabilities'] = {k: v.item() for k,v in self._probabilities.items()}
             # logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
+
+            target_grad = self._calculate_grad(model, self.target_dataloader).detach().clone()
+
+            model.zero_grad()
+            for name, dataloader in self.auxiliary_dataloaders.items():
+                similarities = []
+                for batch in dataloader:
+                    _, grad_step = self.training_step(
+                        model,
+                        batch,
+                        name,
+                        return_grads = True
+                    )
+                    grad_step.detach().clone()
+                    sim = self._calculate_similarity(target_grad, grad_step).item()
+                    similarities.append(sim)
+                    model.zero_grad()
+                logs[f"gradient_similarity_{name}"] = similarities
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step

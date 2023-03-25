@@ -214,7 +214,7 @@ def main(
             model=model,
             args=training_args,
             train_dataset=train_dataset if training_args.do_train else None,
-            train_dataset_dict=train_dataset_dict if training_args.weight_initialization_samples else None,
+            train_dataset_dict=train_dataset_dict,
             eval_dataset=validation_dataset if training_args.do_eval else None,
             target_dataset=target_dataset if training_args.gradient_directed else None,
             tokenizer=tokenizer,
