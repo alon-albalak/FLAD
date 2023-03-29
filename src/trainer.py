@@ -92,6 +92,20 @@ class PredictionOutput(NamedTuple):
     metrics: Optional[Dict[str, float]]
     idxs: Optional[Union[np.ndarray, Tuple[np.ndarray]]]
 
+class AuxGrad:
+    def __init__(self, grad):
+        self.aux_grad = grad
+        self.num_grads = 1
+    
+    def __iadd__(self, other):
+        aux_grads_total = self.aux_grad * self.num_grads + other
+        self.num_grads += 1
+        self.aux_grad = aux_grads_total / self.num_grads
+        return self
+    
+    def __call__(self):
+        return self.aux_grad
+
 class FLADSeq2SeqTrainer(Seq2SeqTrainer):
     def compute_loss(
         self,
@@ -1401,7 +1415,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
 
     def _update_grad(self, task_name, grad):
         if self._gradients[task_name] is None:
-            self._gradients[task_name] = grad
+            self._gradients[task_name] = AuxGrad(grad)
         else:
             self._gradients[task_name] += grad
 
@@ -1441,7 +1455,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         # calculate similarity between grads and target
         for dataset_name in self.auxiliary_dataset_names:
             if self._gradients[dataset_name] is not None:
-                sim = self._calculate_similarity(target_grad, self._gradients[dataset_name])
+                sim = self._calculate_similarity(target_grad, self._gradients[dataset_name]())
                 self._similarities[dataset_name] = \
                     (1-self.similarity_beta)*self._similarities[dataset_name] + \
                         self.similarity_beta*sim
@@ -2041,7 +2055,7 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
         # calculate similarity between grads and target
         for dataset_name in self.auxiliary_dataset_names:
             if self._gradients[dataset_name] is not None:
-                sim = self._calculate_similarity(target_grad, self._gradients[dataset_name])
+                sim = self._calculate_similarity(target_grad, self._gradients[dataset_name]())
                 self._similarities[dataset_name] = \
                     (1-self.similarity_beta)*self._similarities[dataset_name] + \
                         self.similarity_beta*sim
