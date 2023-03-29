@@ -1151,7 +1151,9 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         # initialize data loaders for train_dataset_dict
         self.auxiliary_dataloaders = {}
         for name, dataset in self.train_dataset_dict.items():
-            self.auxiliary_dataloaders[name] = self.get_target_dataloader(dataset)
+            num_samples = min(len(dataset), 4000)
+            d = torch.utils.data.dataset.Subset(dataset, range(0,num_samples))
+            self.auxiliary_dataloaders[name] = self.get_target_dataloader(d, batch_size=6)
 
     def _initialize_vars_to_log(self):
         # add variable names and their value type to self._vars_to_log
@@ -1326,11 +1328,14 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
                 seed=seed,
             )
 
-    def get_target_dataloader(self, target_dataset = None) -> DataLoader:
+    def get_target_dataloader(self, target_dataset = None, batch_size = None) -> DataLoader:
         target_dataset = target_dataset if target_dataset else self.target_dataset
         
         if target_dataset is None:
             raise ValueError("Trainer: Gradient directed training requires a target_dataset.")
+        
+        if batch_size is None:
+            batch_size = self._train_batch_size
         
         # Get custom collate_fn
         data_collator = FLADDataCollator(
@@ -1349,7 +1354,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             if self.args.world_size > 1:
                 target_dataset = IterableDatasetShard(
                     target_dataset,
-                    batch_size=self._train_batch_size,
+                    batch_size=batch_size,
                     drop_last=self.args.dataloader_drop_last,
                     num_processes=self.args.world_size,
                     process_index=self.args.process_index,
@@ -1367,7 +1372,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
 
         return DataLoader(
             target_dataset,
-            batch_size=self._train_batch_size,
+            batch_size=batch_size,
             sampler=target_sampler,
             collate_fn=data_collator,
             drop_last=self.args.dataloader_drop_last,
@@ -1742,6 +1747,30 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
             if epoch == epochs_trained and resume_from_checkpoint is not None and steps_trained_in_current_epoch == 0:
                 self._load_rng_state(resume_from_checkpoint)
 
+            target_grad = self._calculate_grad(model, self.target_dataloader).detach()
+
+            model.zero_grad()
+            logger.info("Calculating gradient similarity for auxiliary datasets...")
+            logging_dict = {"step": 0}
+            for i, (name, dataloader) in enumerate(self.auxiliary_dataloaders.items()):
+                logger.info(f"Calculating gradient similarity for dataset {i+1}: {name}...")
+                similarities = []
+                for batch in dataloader:
+                    _, grad_step = self.training_step(
+                        model,
+                        batch,
+                        name,
+                        return_grads = True
+                    )
+                    grad_step.detach()
+                    sim = self._calculate_similarity(target_grad, grad_step).item()
+                    similarities.append(sim)
+                    model.zero_grad()
+                single_log = {"step": 0, f"gradient_similarity_{name}": similarities}
+                logger.info(single_log)
+                logging_dict[f"gradient_similarity_{name}"] = similarities
+            self.log(logging_dict)
+
             step = -1
             for step, inputs in enumerate(epoch_iterator):
                 sample_datasets = inputs.pop("dataset_name")
@@ -2103,10 +2132,15 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
             # logs['probabilities'] = {k: v.item() for k,v in self._probabilities.items()}
             # logs['gradient_similarities'] = {k: v.item() for k,v in self._similarities.items()}
 
-            target_grad = self._calculate_grad(model, self.target_dataloader).detach().clone()
+        metrics = None
+        if self.control.should_evaluate:
+
+            target_grad = self._calculate_grad(model, self.target_dataloader).detach()
 
             model.zero_grad()
-            for name, dataloader in self.auxiliary_dataloaders.items():
+            logger.info("Calculating gradient similarity for auxiliary datasets...")
+            for i, (name, dataloader) in enumerate(self.auxiliary_dataloaders.items()):
+                logger.info(f"Calculating gradient similarity for dataset {i+1}: {name}...")
                 similarities = []
                 for batch in dataloader:
                     _, grad_step = self.training_step(
@@ -2115,7 +2149,7 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
                         name,
                         return_grads = True
                     )
-                    grad_step.detach().clone()
+                    grad_step.detach()
                     sim = self._calculate_similarity(target_grad, grad_step).item()
                     similarities.append(sim)
                     model.zero_grad()
@@ -2127,8 +2161,6 @@ class Exp3BatchedFLADTrainer(BatchedFLADTrainer):
 
             self.log(logs)
 
-        metrics = None
-        if self.control.should_evaluate:
             if isinstance(self.eval_dataset, dict):
                 for eval_dataset_name, eval_dataset in self.eval_dataset.items():
                     metrics = self.evaluate(
