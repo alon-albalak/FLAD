@@ -1548,7 +1548,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         self._train_batch_size = batch_size
         # Data loader and number of training steps
         train_dataloader = self.get_train_dataloader()
-        target_dataloader = self.get_target_dataloader(self.target_dataset)
+        target_dataloader = self.get_target_dataloader(self.target_dataset, batch_size=6)
         self.target_dataloader = target_dataloader
 
         # Setting up training control variables:

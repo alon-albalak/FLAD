@@ -324,7 +324,7 @@ if __name__ == "__main__":
 
     # model arguments
     patience=10
-    max_steps=10000
+    max_steps=500
     eval_steps=100
     save_steps=100
     eval_delay=100
@@ -371,7 +371,7 @@ if __name__ == "__main__":
             )
     
     loss_scaling=False
-    loss_or_sample_name = "weighted_batch_exp3"
+    loss_or_sample_name = "reward_distribution_exp3"
     weighted_batch_sampling=True
     dataset_similarity_threshold = None
     exp3=True
