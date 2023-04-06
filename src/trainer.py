@@ -1246,7 +1246,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
 
             # scale loss by similarity to target dataset
             if scale_by_similarities:
-                loss = loss*self._similarities[batch_dataset]
+                loss = loss*(self._similarities[batch_dataset]+1e-6)
 
             if self.args.gradient_accumulation_steps > 1 and not self.deepspeed:
                 # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
