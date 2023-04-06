@@ -46,7 +46,7 @@ class TrainStrategy(ExplicitEnum):
     TARGET_ONLY = "target_only"
 
 
-class SimilarityStrategy(ExplicitEnum):
+class RewardModelPartitions(ExplicitEnum):
     ALL_WEIGHTS = "weight"
     ENCODER = "encoder"
     DECODER = "decoder"
@@ -354,7 +354,7 @@ class FLADTrainingArguments(Seq2SeqTrainingArguments):
             "help": "If <1 then gradient similarity updates will be an exponential moving average"
         }
     )
-    similarity_strategy: Optional[Union[SimilarityStrategy, str]] = field(
+    similarity_strategy: Optional[Union[RewardModelPartitions, str]] = field(
       default="weight",
       metadata={
           "help": "Determines which weights to use for similarity calculation"
