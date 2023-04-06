@@ -319,6 +319,7 @@ if __name__ == "__main__":
     parser.add_argument("--gradient_directed", type=bool, default=True)
     parser.add_argument("--base_output_dir", type=str, default=None)
     parser.add_argument("--precomputed_weight_grad_save_dir", type=str, default=None)
+    parser.add_argument("--reward_function", type=str, default="cosine")
     args = parser.parse_args()
 
     # model arguments
@@ -327,13 +328,13 @@ if __name__ == "__main__":
     eval_steps=100
     save_steps=100
     eval_delay=100
+    betas = [0.1]
     if args.model == "google/t5-base-lm-adapt":
         model_name_or_path = "google/t5-base-lm-adapt"
         model_name = "T5_LM_base"
         per_device_train_batch_size=16
         per_device_eval_batch_size=128
         gradient_checkpointing = False
-        betas = [0.1]
         grad_accs = [2, 8]
         lrs = [3e-4, 1e-4]
     elif args.model == "google/t5-xl-lm-adapt":
@@ -342,7 +343,6 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        betas = [0.1]
         grad_accs = [16]
         lrs = [1e-4]
     elif args.model == "bigscience/T0_3B":
@@ -351,7 +351,6 @@ if __name__ == "__main__":
         per_device_train_batch_size=8
         per_device_eval_batch_size=64
         gradient_checkpointing = True
-        betas = [0.1]
         grad_accs = [16]
         lrs = [1e-4]
     else:
@@ -381,12 +380,12 @@ if __name__ == "__main__":
     if args.base_output_dir is not None:
         base_output_dir=f"{args.base_output_dir}/{model_name}/{args.aux_dataset}/"+\
         "{}/"+f"{args.seed}/{args.target_dataset}/"+\
-            "{}/{}/{}/"+\
+            "{}/{}/{}/{}/{}/"+\
             f"{args.weight_initialization_samples}"
     else:    
         base_output_dir=f"{MAIN_OUTPUT_DIR}/{model_name}/{args.aux_dataset}/"+\
             "{}/"+f"{args.seed}/{args.target_dataset}/"+\
-                "{}/{}/{}/"+\
+                "{}/{}/{}/{}/{}/"+\
                 f"{args.weight_initialization_samples}"
     overwrite_output_dir=True
     predict_with_generate=True
@@ -404,7 +403,7 @@ if __name__ == "__main__":
     lr_scheduler_type="constant_with_warmup"
     gradient_directed=True
     FLAD_strategy="batched"
-    similarity_strategy="lm_head"
+    reward_model_partition="lm_head"
     
 
     # data loading
@@ -444,10 +443,10 @@ if __name__ == "__main__":
                 print(f"*** Running experiment {count} of {total}")
                 if dataset_similarity_threshold is not None:
                     # add threshold to output dir
-                    output_dir = base_output_dir.format(f"{loss_or_sample_name}_with_threshold", beta, grad_acc, lr, args.weight_initialization_samples)
+                    output_dir = base_output_dir.format(f"{loss_or_sample_name}_with_threshold", args.reward_function, beta, grad_acc, lr, args.weight_initialization_samples)
                     output_dir = output_dir+f"/{dataset_similarity_threshold}"
                 else:
-                    output_dir = base_output_dir.format(loss_or_sample_name, beta, grad_acc, lr, args.weight_initialization_samples)
+                    output_dir = base_output_dir.format(loss_or_sample_name, args.reward_function, beta, grad_acc, lr, args.weight_initialization_samples)
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir, exist_ok=True)
 
@@ -495,7 +494,7 @@ if __name__ == "__main__":
                     lr_scheduler_type=lr_scheduler_type,
                     gradient_directed=gradient_directed,
                     FLAD_strategy=FLAD_strategy,
-                    similarity_strategy=similarity_strategy,
+                    reward_model_partition=reward_model_partition,
                     similarity_beta=beta,
                     loss_scaling=loss_scaling,
                     weighted_batch_sampling=weighted_batch_sampling,
@@ -505,7 +504,8 @@ if __name__ == "__main__":
                     dataset_similarity_threshold=dataset_similarity_threshold,
                     offload_grads=args.offload_grads,
                     tf32=True,
-                    ucb1=ucb1
+                    ucb1=ucb1,
+                    reward_function=args.reward_function
                 )
 
                 handler = logging.StreamHandler(sys.stdout)

@@ -319,6 +319,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_strategy", type=str, default="auxiliary_and_target")
     parser.add_argument("--gradient_directed", type=bool, default=True)
     parser.add_argument("--base_output_dir", type=str, default=None)
+    parser.add_argument("--reward_function", type=str, default="cosine")
     args = parser.parse_args()
 
     # model arguments
@@ -379,12 +380,12 @@ if __name__ == "__main__":
     if args.base_output_dir is not None:
         base_output_dir=f"{args.base_output_dir}/{model_name}/{args.aux_dataset}/"+\
             "{}/"+f"{args.seed}/{args.target_dataset}/"+\
-                "{}/{}/{}/"+\
+                "{}/{}/{}/{}/{}/"+\
                 f"{args.weight_initialization_samples}"
     else:
         base_output_dir=f"{MAIN_OUTPUT_DIR}/{model_name}/{args.aux_dataset}/"+\
             "{}/"+f"{args.seed}/{args.target_dataset}/"+\
-                "{}/{}/{}/"+\
+                "{}/{}/{}/{}/{}/"+\
                 f"{args.weight_initialization_samples}"
     overwrite_output_dir=True
     predict_with_generate=True
@@ -402,7 +403,7 @@ if __name__ == "__main__":
     lr_scheduler_type="constant_with_warmup"
     gradient_directed=True
     FLAD_strategy="batched"
-    similarity_strategy="lm_head"
+    reward_model_partition="lm_head"
     
 
     # data loading
@@ -442,10 +443,10 @@ if __name__ == "__main__":
                 print(f"*** Running experiment {count} of {total}")
                 if dataset_similarity_threshold is not None:
                     # add threshold to output dir
-                    output_dir = base_output_dir.format(f"{loss_or_sample_name}_with_threshold", beta, grad_acc, lr, args.weight_initialization_samples)
+                    output_dir = base_output_dir.format(f"{loss_or_sample_name}_with_threshold", args.reward_function, beta, grad_acc, lr, args.weight_initialization_samples)
                     output_dir = output_dir+f"/{dataset_similarity_threshold}"
                 else:
-                    output_dir = base_output_dir.format(loss_or_sample_name, beta, grad_acc, lr, args.weight_initialization_samples)
+                    output_dir = base_output_dir.format(loss_or_sample_name, args.reward_function, beta, grad_acc, lr, args.weight_initialization_samples)
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir, exist_ok=True)
 
@@ -493,14 +494,15 @@ if __name__ == "__main__":
                     lr_scheduler_type=lr_scheduler_type,
                     gradient_directed=gradient_directed,
                     FLAD_strategy=FLAD_strategy,
-                    similarity_strategy=similarity_strategy,
+                    reward_model_partition=reward_model_partition,
                     similarity_beta=beta,
                     loss_scaling=loss_scaling,
                     weighted_batch_sampling=weighted_batch_sampling,
                     weight_initialization_samples=args.weight_initialization_samples,
                     dataset_similarity_threshold=dataset_similarity_threshold,
                     tf32=True,
-                    exp3=exp3
+                    exp3=exp3,
+                    reward_function=args.reward_function
                 )
 
                 handler = logging.StreamHandler(sys.stdout)
