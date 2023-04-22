@@ -3,7 +3,7 @@
 This is the official repository for [Improving Few-Shot Generalization by Exploring and Exploiting Auxiliary Data](https://arxiv.org/abs/2302.00674).
 
 Overview of our approach to FLAD with multi-armed bandits:
-![FLAD Overview](flad_overview.png)
+![FLAD Overview](flad_overview.pdf)
 
 ## Overview
 
