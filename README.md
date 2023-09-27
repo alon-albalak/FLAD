@@ -1,12 +1,10 @@
 # FLAD - Few-shot Learning with Auxiliary Data
 
-This is the official repository for [Improving Few-Shot Generalization by Exploring and Exploiting Auxiliary Data](https://arxiv.org/abs/2302.00674).
+This is the official repository for the 2023 NeurIPS paper: [Improving Few-Shot Generalization by Exploring and Exploiting Auxiliary Data](https://arxiv.org/abs/2302.00674).
 
-Overview of our approach to FLAD with multi-armed bandits:
-![FLAD Overview](flad_overview.png)
 
 ## Overview
-
+![FLAD Overview](flad_overview.png)
 Few-shot learning with auxiliary data (**FLAD**) assumes access to auxiliary labeled data during learning to improve a model's few-shot generalization.
 <br>
 This repository contains code to use two FLAD methods (EXP3-FLAD and UCB1-FLAD) on datasets from [P3](https://github.com/bigscience-workshop/promptsource) using models from the [Hugging Face Model Hub](https://huggingface.co/models) based on the [T5 architecture](https://github.com/google-research/text-to-text-transfer-transformer) (including LM adapted T5, T0).
