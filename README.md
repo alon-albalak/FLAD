@@ -30,37 +30,6 @@ pip install -r requirements.txt -f https://download.pytorch.org/whl/cu${CUDA_VER
   
 </details>
 
-## To run baselines:
-<details><summary>Target-only baseline</summary>
-        
-```bash
-GPU=0
-bash target_only_finetuning.sh $GPU
-```
-</details>
-
-<details><summary>Explore-only baseline</summary>
-  
-```bash
-GPU=0
-TARGET_DATASET='copa'
-bash all_mixed.sh $GPU $TARGET_DATASET
-```
-  </details>
-  
-<details><summary>Exploit-only baseline</summary>
-    
-```bash
-GPU=0
-TARGET_DATASET='copa'
-bash all_exploit.sh $GPU $TARGET_DATASET
-```
-
-*Note*: The exploit-only baseline requires computing auxiliary dataset gradients prior to training.
-<br>
-This process will take a few hours, depending on your hardware.
- </details>
-
 ## To run our FLAD methods:
  
 <details><summary>EXP3-FLAD</summary>
@@ -102,6 +71,37 @@ python3 src/multirun_create_weight_inits.py --target_dataset $TARGET_DATASET --a
   
   </details>
 
+## To run baselines:
+<details><summary>Target-only baseline</summary>
+        
+```bash
+GPU=0
+bash target_only_finetuning.sh $GPU
+```
+</details>
+
+<details><summary>Explore-only baseline</summary>
+  
+```bash
+GPU=0
+TARGET_DATASET='copa'
+bash all_mixed.sh $GPU $TARGET_DATASET
+```
+  </details>
+  
+<details><summary>Exploit-only baseline</summary>
+    
+```bash
+GPU=0
+TARGET_DATASET='copa'
+bash all_exploit.sh $GPU $TARGET_DATASET
+```
+
+*Note*: The exploit-only baseline requires computing auxiliary dataset gradients prior to training.
+<br>
+This process will take a few hours, depending on your hardware.
+ </details>
+ 
 ### Attribution
 The data loading and formatting code is based on [T-Few](https://github.com/r-three/t-few).
 
