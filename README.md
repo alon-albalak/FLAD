@@ -97,7 +97,9 @@ TARGET_DATASET='copa'
 bash all_exploit.sh $GPU $TARGET_DATASET
 ```
 
-*Note*: The exploit-only baseline requires computing auxiliary dataset gradients prior to training.
+**Note: The exploit-only baseline requires computing auxiliary dataset gradients prior to training.**
+<br>
+See the dropdown menu for *To pre-compute gradient alignments* for the command to run.
 <br>
 This process will take a few hours, depending on your hardware.
  </details>
