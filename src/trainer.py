@@ -1142,7 +1142,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         similarity_beta: Optional[float] = 1,
         data_args: DataTrainingArguments = None,
         target_dataset_args: TargetDatasetArguments = None,
-        
+        weight_init_only: bool = False,
     ):
         super().__init__(
             model,args, data_collator,train_dataset,eval_dataset,
@@ -1159,6 +1159,7 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         self._initialize_grads_similarities()
         self._vars_to_log = {}
         self._initialize_vars_to_log()
+        self.weight_init_only = weight_init_only
 
     def _initialize_vars_to_log(self):
         # add variable names and their value type to self._vars_to_log
@@ -1638,6 +1639,9 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
         # Initialize weights if needed
         if self.args.weight_initialization_samples > 0:
             self._initialize_weights(train_dataloader, target_dataloader, model)
+        
+        if self.weight_init_only:
+            return
 
         # Train!
         logger.info("***** Running training *****")
