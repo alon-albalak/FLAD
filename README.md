@@ -110,10 +110,12 @@ The data loading and formatting code is based on [T-Few](https://github.com/r-th
 ## How to Cite
 If you extend or use this work, please cite the [paper](https://arxiv.org/abs/2302.00674) where it was introduced:
 ```
-@article{albalak2023improving,
-      title={Improving Few-Shot Generalization by Exploring and Exploiting Auxiliary Data}, 
-      author={Albalak, Alon and Raffel, Colin and Wang, William Yang},
-      journal={arXiv preprint arXiv:2302.00674},
-      year={2023},
+@inproceedings{
+    albalak2023improving,
+    title={Improving Few-Shot Generalization by Exploring and Exploiting Auxiliary Data},
+    author={Alon Albalak and Colin Raffel and William Yang Wang},
+    booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
+    year={2023},
+    url={https://openreview.net/forum?id=JDnLXc4NOn}
 }
 ```
