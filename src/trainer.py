@@ -1638,7 +1638,10 @@ class BatchedFLADTrainer(FLADSeq2SeqTrainer):
 
         # Initialize weights if needed
         if self.args.weight_initialization_samples > 0:
-            self._initialize_weights(train_dataloader, target_dataloader, model)
+            if hasattr(model, "name_or_path"):
+                self._initialize_weights(train_dataloader, target_dataloader, model)
+            else:
+                self._initialize_weights(train_dataloader, target_dataloader, self.model)
         
         if self.weight_init_only:
             return
